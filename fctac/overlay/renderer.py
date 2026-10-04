@@ -243,6 +243,14 @@ class OverlayRenderer:
         me = st.controlled
         p0 = self._player_screen(H, me)
         tgt_player = st.player(a.target_id)
+        if a.detail.get("origin") is not None:
+            # ball travelling to the controlled player: show where to collect it, then
+            # the action from that point (first-time decision)
+            rp = apply_h(H, a.detail["origin"])
+            if not secondary:
+                c.dashed([p0, rp], NEUTRAL, max(1, int(1.5 * k)), 170, dash=6 * k, gap=6 * k)
+                c.ring(self._ground_ring(H, a.detail["origin"], 0.9), NEUTRAL, max(1, int(2 * k)), 200)
+            p0 = rp
         if a.kind in (T.PASS, T.LOB, T.CROSS, T.THROUGH):
             if a.kind == T.THROUGH and a.target_point is not None:
                 end = apply_h(H, a.target_point)

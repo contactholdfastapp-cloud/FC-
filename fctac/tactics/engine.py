@@ -79,7 +79,14 @@ class TacticsEngine:
         if not len(ok):
             return None
         k = int(ok[0])
-        # only if no team-mate is clearly better placed (FC switches to the receiver)
+        # an opponent who can cut the ball out before (or at) that point wins the race:
+        # then it is a contested ball, not ours to plan from
+        opps = st.team(T.TEAM_THEM)
+        if opps:
+            to = ph.time_to_reach(np.array([o.pos for o in opps]), np.array([o.vel for o in opps]), pts[:k + 1], pc)
+            t_ours = max(float(tm[k]), float(tb[k]))
+            if np.any(to.min(axis=0) < np.minimum(np.maximum(tb[:k + 1], 0.0), t_ours) - 0.05):
+                return None
         return pts[k], float(tb[k])
 
     def quality(self, st: T.GameState) -> tuple[float, str]:

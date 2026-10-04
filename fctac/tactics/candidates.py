@@ -179,6 +179,11 @@ class CandidateGenerator:
             out.append(self._shot(origin, st, ctx))
         out.append(self._dribble(origin, opp_pos, opp_vel, ctx))
         out.append(self._hold(origin, ctx, opp_pos, opp_vel))
+        if t_offset > 0:
+            # evaluated from a future reception point: the overlay draws from there
+            for a in out:
+                a.detail["origin"] = origin.copy()
+                a.detail["t_receive"] = float(t_offset)
         return out
 
     # ------------------------------------------------------------------------

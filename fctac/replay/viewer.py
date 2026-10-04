@@ -6,7 +6,7 @@
 
 Keys:  SPACE play/pause   D / RIGHT next   A / LEFT prev   W / S speed +/-
        E / Q jump +-5 s   O overlay   G debug panel   C confidence
-       2 secondary action   R reset analysis   H help   ESC quit
+       T tracking view (ids/roles/teams)   2 secondary   R reset   H help   ESC quit
 """
 from __future__ import annotations
 
@@ -99,6 +99,7 @@ class ReplayViewer:
         self.playing = False
         self.speed_i = SPEEDS.index(1.0)
         self.show_overlay = True
+        self.show_tracks = False
         self.show_help = False
         self.win = "FC27 Tactical Replay"
 
@@ -109,6 +110,8 @@ class ReplayViewer:
             return None
         fa = self.cache.get(idx)
         img = frame.copy()
+        if fa is not None and self.show_tracks:
+            self._draw_tracks(img, fa)
         if fa is not None and self.show_overlay:
             dbg = self._debug_lines(fa) if self.ocfg.show_debug else None
             self.ov.render(fa, dbg).composite_onto(img)
@@ -117,6 +120,33 @@ class ReplayViewer:
         if self.show_help:
             self._help(out)
         return out
+
+    @staticmethod
+    def _draw_tracks(img, fa: T.FrameAnalysis):
+        """Tracking verification: persistent id, role, team colour, controlled ring, ball."""
+        st = fa.state
+        if st is None:
+            return
+        k = img.shape[0] / 720.0
+        for p in st.players:
+            if p.screen is None:
+                continue
+            x, y = int(p.screen[0]), int(p.screen[1])
+            if not (0 <= x < img.shape[1] and 0 <= y < img.shape[0]):
+                continue
+            col = (80, 220, 80) if p.team == T.TEAM_US else (60, 60, 235)
+            cv2.circle(img, (x, y), max(3, int(4 * k)), col, -1, cv2.LINE_AA)
+            if p.controlled:
+                cv2.circle(img, (x, y), int(11 * k), (0, 230, 255), 2, cv2.LINE_AA)
+            lab = f"{p.id}{(' ' + p.role) if p.role else ''}"
+            cv2.putText(img, lab, (x + 5, y + int(14 * k)), cv2.FONT_HERSHEY_SIMPLEX, 0.38 * k, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(img, lab, (x + 5, y + int(14 * k)), cv2.FONT_HERSHEY_SIMPLEX, 0.38 * k, col, 1, cv2.LINE_AA)
+        b = st.ball
+        if b is not None and b.screen is not None:
+            cv2.circle(img, (int(b.screen[0]), int(b.screen[1])), int(8 * k), (255, 255, 255), 1, cv2.LINE_AA)
+            if b.owner_id is not None:
+                cv2.putText(img, f"owner {b.owner_id}", (int(b.screen[0]) + 8, int(b.screen[1]) - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.38 * k, (255, 255, 255), 1, cv2.LINE_AA)
 
     def _debug_lines(self, fa: T.FrameAnalysis) -> list:
         s = self.cache.stats.summary()
@@ -226,6 +256,8 @@ class ReplayViewer:
             self.cache.reset()
         elif k == ord("h"):
             self.show_help = not self.show_help
+        elif k == ord("t"):
+            self.show_tracks = not self.show_tracks
         return True
 
     # --- interactive loop ------------------------------------------------------
@@ -331,6 +363,7 @@ def main(argv=None):
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=-1)
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--tracks", action="store_true", help="tracking verification view")
     ap.add_argument("--anchor", default="player", choices=("player", "top"))
     ap.add_argument("--ranker", default="", help="heuristic | registry | path/to/ranker.json")
     ap.add_argument("--predictor", default="", help="kinematic | registry | path/to/predictor.json")
@@ -338,6 +371,7 @@ def main(argv=None):
     src = VideoSource(a.video)
     an, events = build_analyzer(a, src)
     v = ReplayViewer(src, an, events, OverlayConfig(show_debug=a.debug, label_anchor=a.anchor))
+    v.show_tracks = a.tracks
     if a.export:
         info = v.export(a.export, a.start, None if a.end < 0 else a.end)
         import json
