@@ -35,7 +35,7 @@ to fix each.
   main-view ball is only fused when it agrees with the radar.
 * **Tight duels.** ID switches happen when two players overlap on the radar
   (~15–25 per minute on synthetic data, mostly in duels). Possession and phase
-  are about 87–88 % correct on the clean synthetic clip.
+  are about 85–88 % correct on the clean synthetic clips (720p and 1440p).
 * **Without the radar**, calibration is kept alive by pitch-line tracking
   (0.2 m over 15 s from one seed) and players are tracked from the main view
   (~1 m error, visible players only). Ball tracking in this mode is not yet
@@ -43,9 +43,10 @@ to fix each.
   guard (a slow ball with nobody within 8 m) then switches to ANALYSING instead
   of advising. Keep the radar on.
 * **Exclusive fullscreen** hides any overlay. Use borderless/windowed.
-* The learned detector's ball and controlled-player heads are weak on the
-  current synthetic training set (rare classes). The radar provides both, so
-  the pipeline does not depend on them.
+* The learned detector's ball head is weak on the current synthetic training
+  set (recall ~0.33; the controlled-player head reaches 0.93 since it targets
+  the marker above the head). The radar provides the ball, so the pipeline does
+  not depend on it.
 
 ## Tactics and learning
 
