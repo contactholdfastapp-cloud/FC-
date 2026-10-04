@@ -36,6 +36,12 @@ to fix each.
 * **Tight duels.** ID switches happen when two players overlap on the radar
   (~15–25 per minute on synthetic data, mostly in duels). Possession and phase
   are about 87–88 % correct on the clean synthetic clip.
+* **Without the radar**, calibration is kept alive by pitch-line tracking
+  (0.2 m over 15 s from one seed) and players are tracked from the main view
+  (~1 m error, visible players only). Ball tracking in this mode is not yet
+  robust: it can lose lofted balls and lock onto white markings. A plausibility
+  guard (a slow ball with nobody within 8 m) then switches to ANALYSING instead
+  of advising. Keep the radar on.
 * **Exclusive fullscreen** hides any overlay. Use borderless/windowed.
 * The learned detector's ball and controlled-player heads are weak on the
   current synthetic training set (rare classes). The radar provides both, so

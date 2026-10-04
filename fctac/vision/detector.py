@@ -45,6 +45,7 @@ class ColorDetector:
         self._kbig = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
         self.last_pitch_mask: Optional[np.ndarray] = None
         self.last_scale = 1.0
+        self.ball_exclude: np.ndarray = np.zeros((0, 2))   # screen points that look like a ball (pitch spots)
 
     def _hud_mask(self, h, w) -> np.ndarray:
         m = np.full((h, w), 255, np.uint8)
@@ -163,6 +164,11 @@ class ColorDetector:
             best.controlled = True
             best.controlled_conf = 1.0
 
+    def _excluded(self, c, width) -> bool:
+        if not len(self.ball_exclude):
+            return False
+        return bool(np.min(np.hypot(self.ball_exclude[:, 0] - c[1], self.ball_exclude[:, 1] - c[2])) < 0.012 * width)
+
     @staticmethod
     def _on_body(x, y, dets) -> bool:
         """White blob on a player's shirt/shorts (not at the feet) -> not the ball."""
@@ -173,7 +179,15 @@ class ColorDetector:
 
     def _ball(self, frame, small, white, pitch, fg, s, prior, dets=()) -> Optional[T.Detection]:
         cands = []
-        # global search at working resolution
+        if prior is None and self.cfg.ball_full_res:
+            # (re-)acquisition: at working resolution thin line fragments look like a
+            # ball; at full resolution they are clearly elongated
+            c = self._ball_global_full_res(frame, pitch, s, dets)
+            if c is not None and not self._excluded(c, frame.shape[1]):
+                sc, x, y, sz = c
+                return T.Detection(cls=T.CLS_BALL, x=float(x), y=float(y), w=sz, h=sz, conf=float(min(1.0, sc)))
+            return None
+        # tracking: working-resolution candidates + full-resolution search around the prior
         wm = cv2.bitwise_and(white, pitch)
         n, lbl, stats, cent = cv2.connectedComponentsWithStats(wm, connectivity=8)
         for i in range(1, n):
@@ -194,6 +208,7 @@ class ColorDetector:
             if c is not None:
                 cands.append(c)
         cands = [c for c in cands if not self._on_body(c[1], c[2], dets)]
+        cands = [c for c in cands if not self._excluded(c, frame.shape[1])]
         if not cands:
             return None
         if prior is not None:
@@ -203,6 +218,32 @@ class ColorDetector:
             cands.sort(key=lambda c: -c[0])
         sc, x, y, sz = cands[0]
         return T.Detection(cls=T.CLS_BALL, x=float(x), y=float(y), w=sz, h=sz, conf=float(min(1.0, sc)))
+
+    def _ball_global_full_res(self, frame, pitch_small, s, dets):
+        H, W = frame.shape[:2]
+        pm = cv2.resize(pitch_small, (W, H), interpolation=cv2.INTER_NEAREST)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        m = ((hsv[..., 1] < 60) & (hsv[..., 2] > 185)).astype(np.uint8)
+        m = cv2.bitwise_and(m, m, mask=pm)
+        n, lbl, stats, cent = cv2.connectedComponentsWithStats(m, connectivity=8)
+        scale = W / 1280.0
+        best = None
+        for i in range(1, n):
+            x, y, bw, bh, a = stats[i]
+            if a < 4 * scale * scale or max(bw, bh) > 14 * scale or min(bw, bh) < 3 * scale:
+                continue
+            sq = min(bw, bh) / max(bw, bh)
+            fill = a / float(bw * bh)
+            if sq < 0.65 or fill < 0.55 or self._on_body(cent[i][0], cent[i][1], dets):
+                continue
+            # isolated: little white around it (lines continue, the ball does not)
+            x0, y0 = max(0, x - 4), max(0, y - 4)
+            ring = m[y0:y + bh + 4, x0:x + bw + 4]
+            ring_white = (float(ring.sum()) - a) / max(ring.size - a, 1)
+            score = sq * fill * (1.0 - min(1.0, 4 * ring_white))
+            if score > 0.2 and (best is None or score > best[0]):
+                best = (score, cent[i][0], cent[i][1], float(max(bw, bh)))
+        return best
 
     def _ball_full_res(self, frame, prior, half=48):
         H, W = frame.shape[:2]

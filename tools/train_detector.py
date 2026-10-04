@@ -186,7 +186,7 @@ def main():
     m = evaluate_onnx_on_labels(onnx_path, splits["val"])
     print("val metrics", json.dumps(m))
     reg = Registry()
-    entry = reg.register("detector", onnx_path, m, primary="f1", data=a.data)
+    entry = reg.register("detector", onnx_path, m, primary="det_score", data=a.data)
     print("registered", entry["version"], "deployed" if entry["deployed"] else "(not deployed: not better than current)")
 
 

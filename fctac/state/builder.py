@@ -20,6 +20,7 @@ class StateConfig:
     owner_max_ball_speed: float = 9.5     # faster balls are passes/shots, not dribbles
     kick_accel: float = 90.0              # m/s^2 (3 m/s per frame at 30 fps) marks a touch
     kick_radius: float = 3.0
+    isolated_ball_m: float = 8.0          # slow ball this far from every player for >1 s = implausible
     min_tracks: int = 8
 
 
@@ -34,6 +35,7 @@ class StateBuilder:
         self.last_touch_id: Optional[int] = None
         self._prev_ball_vel: Optional[np.ndarray] = None
         self._prev_t: Optional[float] = None
+        self._isolated_since: Optional[float] = None
 
     def reset(self):
         self.__init__(self.cfg)
@@ -82,7 +84,17 @@ class StateBuilder:
                 bscreen = ball.screen.copy()
             elif H_p2i is not None:
                 bscreen = apply_h(H_p2i, ball.kf.pos)
-            gs.ball = T.BallState(pos=bpos, vel=bvel, confidence=float(ball.conf), screen=bscreen)
+            conf = float(ball.conf)
+            # plausibility: a slow ball nobody is near for > 1 s is a pitch marking /
+            # false detection, not the ball -> never base advice on it
+            near = min((float(np.linalg.norm(p.pos - bpos)) for p in gs.players), default=99.0)
+            if near > self.cfg.isolated_ball_m and float(np.linalg.norm(bvel)) < 3.0:
+                self._isolated_since = self._isolated_since if self._isolated_since is not None else t
+                if t - self._isolated_since > 1.0:
+                    conf = min(conf, 0.1)
+            else:
+                self._isolated_since = None
+            gs.ball = T.BallState(pos=bpos, vel=bvel, confidence=conf, screen=bscreen)
             self._possession(gs)
         gs.possession = self.possession
         if len(gs.players) < self.cfg.min_tracks:

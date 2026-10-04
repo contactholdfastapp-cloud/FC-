@@ -1,1 +1,0 @@
-{"input": [384, 640], "stride": 4, "channels": ["player", "ball", "controlled"], "color": "bgr", "scale": 0.00392156862745098, "data": "data/datasets/synth", "epochs": 12, "val_focal": null, "model_width": 1.0}

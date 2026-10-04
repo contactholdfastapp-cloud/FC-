@@ -98,29 +98,31 @@ deployed only if it beats the current one (`runtime.ranker` /
 ## Measured results so far (development container, CPU only, synthetic footage)
 
 Development machine: Linux container, 4 vCPU Xeon @ 2.1 GHz, 15.7 GB RAM,
-**no GPU**. Your PC will differ — rerun the benchmarks there. Numbers below are
-on synthetic FC-style footage with ground truth, not real FC 27.
+**no GPU**. Your PC will differ — rerun `python -m fctac.benchmark.run_all`
+there. Everything below is on synthetic FC-style footage with ground truth,
+**not real FC 27**. Latency rows are from an idle machine; full report:
+[benchmarks/20261004_135257.md](benchmarks/20261004_135257.md).
 
 | stage | result |
 |---|---|
+| **Live loop, 1440p** (video file as capture, `configs/fc27_1440p.json`) | **20.5 ms mean / 43 ms p95** frame-available → overlay ready; 449/451 frames processed at 30 fps (720p: 18.1 / 39 ms) |
+| Full state at 1440p vs ground truth | player position 0.23 m, team 100 %, controlled player 95 %, ball 0.29 m, calibration 0.53 m, possession 85 %, 16.8 ms/frame mean |
 | Radar reader (720p / 1440p) | 98 % player recall, 0.25 / 0.20 m error, ~100 % team, 92–96 % controlled player, 3.3 / 4.9 ms |
-| Colour detector (720p) | precision 0.90, recall 0.87–0.89, foot error ~5 px, ~10 ms |
-| Learned detector v002 (synthetic val) | F1 0.965 (baseline 0.91), foot error 1.2 px (baseline 5.1), ball recall 0.34 |
-| Calibration (radar↔view) | median 0.46 m pitch error, 1.5 ms |
-| Full state (clip01) | player position 0.27 m, team 100 %, controlled 96 %, ball 0.24 m, possession 88 %, ~19 ms/frame total |
-| Live loop (video as capture, VM under load) | e2e 40 ms mean / 64 ms p95 from frame available to overlay presented; stale frames dropped |
+| Colour detector vs learned detector v003 (synthetic val) | F1 0.91 vs 0.95, foot error 5.1 vs 1.2 px, controlled player 0.58 vs 0.93, 12.2 vs 9.2 ms (CPU, ONNX Runtime) |
+| Calibration: radar↔view registration / pitch-line tracking (no radar) | 0.46–0.53 m / 0.21 m median (line tracking from one seed, 15 s) |
+| Overlay render at 1440p | 1.4 ms mean (2.3 p95); 3.1 ms with debug panel |
 | Decision auto-labelling (perfect state / vision state) | action recall 1.00 / 0.62, precision 0.99 / 0.83 |
 | Learned success model vs physics (held-out sim match) | log-loss 0.25 vs 1.88, ECE 0.013 vs 0.49, AUC 0.88 vs 0.81 |
-| Ranking: counterfactual simulator test (313 paired decisions, actions actually executed) | learned EV ranker beats the heuristic by +0.0105 ± 0.0038 goal-units per decision (2.8σ); heuristic still below the simulator's own policy → see `docs/results/` |
-| Movement prediction (held-out sim match, mean error 0.25–1.5 s) | learned MLP 0.95 m vs damped-velocity 1.22 m vs constant-velocity 1.24 m (1.5 s: 2.36 vs 2.95 m) |
-| Overlay render at 1440p | 1.4 ms mean (2.3 p95); 3.1 ms with debug panel |
-| `detect_every=2` (radar + tracker bridge) | same accuracy (pos 0.23 m, controlled 98.7 %), ~25 % less per-frame cost → default in `configs/fc27_1440p.json` |
+| Ranking — counterfactual simulator test (313 paired decisions, recommendation actually executed, 3 rollouts each) | learned EV ranker **+0.0129 ± 0.0036** goal-units/decision over the heuristic (3.5σ); heuristic is still below the simulator's own policy ([docs/results](docs/results)) |
+| Movement prediction (held-out sim match) | learned MLP 0.95 m vs damped-velocity 1.22 m mean error (1.5 s: 2.36 vs 2.95 m) |
+| `detect_every=2` (radar + tracker bridge the gaps) | same accuracy, ~25 % less per-frame cost → default at 1440p |
 
-Learned models in `models/` are trained on synthetic/simulator data to prove
-the pipeline; the default config therefore keeps the heuristic ranker,
-kinematic predictor and colour detector. Switch with `--ranker registry`,
-`--predictor registry`, `runtime.detector = "onnx"` after retraining on your
-FC 27 recordings.
+Learned models in `models/` (registry: detector_v003, ranker_v001,
+predictor_v001) were trained on synthetic/simulator data to prove the
+pipeline. The default config therefore keeps the colour detector, the
+heuristic ranker and the kinematic predictor. Switch to the learned models with
+`--ranker registry`, `--predictor registry` and `runtime.detector = "onnx"`
+after retraining on your FC 27 recordings.
 
 Raw result files: `docs/results/`; new runs of `fctac.benchmark.run_all` go to `benchmarks/`. Known limitations are listed in
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md).

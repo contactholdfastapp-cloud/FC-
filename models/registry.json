@@ -12,9 +12,10 @@
     "controlled_acc": 0.0581,
     "foot_err_px": 1.1,
     "ms_mean": 9.24,
-    "images": 86
+    "images": 86,
+    "det_score": 0.5467
    },
-   "primary": "f1",
+   "primary": "det_score",
    "higher_is_better": true,
    "data": "data/datasets/synth",
    "created": "2026-10-04T12:38:47",
@@ -32,12 +33,34 @@
     "controlled_acc": 0.0814,
     "foot_err_px": 1.23,
     "ms_mean": 33.7,
-    "images": 86
+    "images": 86,
+    "det_score": 0.5872
    },
-   "primary": "f1",
+   "primary": "det_score",
    "higher_is_better": true,
    "data": "data/datasets/synth",
    "created": "2026-10-04T13:24:47",
+   "deployed": false
+  },
+  {
+   "version": "detector_v003",
+   "path": "models/detector_v003.onnx",
+   "metrics": {
+    "player_precision": 0.9143,
+    "player_recall": 0.9782,
+    "f1": 0.9452,
+    "ball_precision": 0.7,
+    "ball_recall": 0.3256,
+    "controlled_acc": 0.9302,
+    "foot_err_px": 1.22,
+    "ms_mean": 9.59,
+    "images": 86,
+    "det_score": 0.7866
+   },
+   "primary": "det_score",
+   "higher_is_better": true,
+   "data": "data/datasets/synth",
+   "created": "2026-10-04T13:46:18",
    "deployed": true
   }
  ],
@@ -58,6 +81,28 @@
    "higher_is_better": false,
    "data": "sim seeds [1, 2, 3, 4]",
    "created": "2026-10-04T13:32:36",
+   "deployed": true
+  }
+ ],
+ "ranker": [
+  {
+   "version": "ranker_v001",
+   "path": "models/ranker_v001.json",
+   "metrics": {
+    "logloss": 0.2489,
+    "brier": 0.0705,
+    "auc": 0.8839,
+    "ece": 0.0127,
+    "n": 756,
+    "baseline_logloss": 1.8776,
+    "cf_value": 0.03059,
+    "cf_vs_heuristic": 0.01287,
+    "cf_vs_heuristic_sem": 0.00363
+   },
+   "primary": "logloss",
+   "higher_is_better": false,
+   "data": "sim seeds 1-6 (test 6); counterfactual seed 7",
+   "created": "2026-10-04T13:51:10",
    "deployed": true
   }
  ]

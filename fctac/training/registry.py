@@ -40,6 +40,18 @@ class Registry:
     def deployed(self, kind: str) -> Optional[dict]:
         return next((e for e in self.entries(kind) if e.get("deployed")), None)
 
+    def redeploy(self, kind: str, primary: str, higher_is_better: bool = True) -> Optional[dict]:
+        """Re-decide which entry is deployed under a (new) primary metric."""
+        lst = [e for e in self.entries(kind) if e["metrics"].get(primary) is not None]
+        if not lst:
+            return None
+        best = max(lst, key=lambda e: e["metrics"][primary] if higher_is_better else -e["metrics"][primary])
+        for e in self.entries(kind):
+            e["deployed"] = e is best
+            e["primary"], e["higher_is_better"] = primary, higher_is_better
+        self._save()
+        return best
+
     def register(self, kind: str, artefact: str, metrics: dict, primary: str, higher_is_better: bool = True,
                  data: str = "", extra_files: tuple = (".json",), force: bool = False) -> dict:
         lst = self.data.setdefault(kind, [])

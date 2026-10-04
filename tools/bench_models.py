@@ -89,7 +89,8 @@ def main():
     a = ap.parse_args()
     meta = json.load(open(a.model + ".json"))
     in_h, in_w = meta["input"]
-    base = os.path.splitext(a.model)[0]
+    os.makedirs(os.path.join("runs", "bench"), exist_ok=True)
+    base = os.path.join("runs", "bench", os.path.splitext(os.path.basename(a.model))[0])
     variants = {"fp32": a.model}
     try:
         to_fp16(a.model, base + ".fp16.onnx")

@@ -1,0 +1,35 @@
+{
+ "heuristic": {
+  "mean_value": 0.01772,
+  "sem": 0.00184,
+  "n": 313,
+  "action_mix": {
+   "DRIBBLE": 131,
+   "PASS": 127,
+   "THROUGH": 50,
+   "SHOOT": 5
+  }
+ },
+ "learned_ev": {
+  "mean_value": 0.03059,
+  "sem": 0.00336,
+  "n": 313,
+  "vs_heuristic": 0.01287,
+  "vs_heuristic_sem": 0.00363,
+  "action_mix": {
+   "DRIBBLE": 30,
+   "PASS": 33,
+   "LOB": 154,
+   "THROUGH": 73,
+   "SHOOT": 22,
+   "CROSS": 1
+  }
+ },
+ "sim_policy": {
+  "mean_value": 0.02728,
+  "sem": 0.00342,
+  "n": 313,
+  "vs_heuristic": 0.00956,
+  "vs_heuristic_sem": 0.00375
+ }
+}

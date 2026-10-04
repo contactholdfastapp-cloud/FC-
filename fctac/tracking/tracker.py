@@ -159,7 +159,9 @@ class Tracker:
                     if np.linalg.norm(bp - radar_ball) < 1.5:
                         self.ball.screen, self.ball.screen_t = np.array([b.x, b.y]), t
                         self._ball_update(bp, self.cfg.ball_view_var / max(calib_conf, 0.3), t)
-                elif self.ball.kf is None or np.linalg.norm(bp - self.ball.kf.pos) < 3.0:
+                else:
+                    # no radar: the ball filter's own gating rejects outliers and
+                    # re-acquires after repeated consistent rejections
                     self.ball.screen, self.ball.screen_t = np.array([b.x, b.y]), t
                     self._ball_update(bp, self.cfg.ball_view_var / max(calib_conf, 0.3), t)
 

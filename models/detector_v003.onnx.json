@@ -1,0 +1,19 @@
+{
+ "input": [
+  384,
+  640
+ ],
+ "stride": 4,
+ "channels": [
+  "player",
+  "ball",
+  "controlled_marker"
+ ],
+ "marker_above": 1.15,
+ "color": "bgr",
+ "scale": 0.00392156862745098,
+ "data": "data/datasets/synth",
+ "epochs": 30,
+ "val_focal": 0.23132766534884772,
+ "model_width": 1.0
+}
