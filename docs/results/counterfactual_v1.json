@@ -1,0 +1,94 @@
+{
+ "heuristic": {
+  "mean_value": 0.01706,
+  "sem": 0.0026,
+  "n": 313,
+  "action_mix": {
+   "DRIBBLE": 32,
+   "PASS": 89,
+   "HOLD": 170,
+   "THROUGH": 21,
+   "SHOOT": 1
+  }
+ },
+ "platt_ev": {
+  "mean_value": 0.01067,
+  "sem": 0.00244,
+  "n": 313,
+  "vs_heuristic": -0.00639,
+  "vs_heuristic_sem": 0.00363,
+  "action_mix": {
+   "DRIBBLE": 15,
+   "PASS": 30,
+   "THROUGH": 213,
+   "SHOOT": 22,
+   "LOB": 32,
+   "HOLD": 1
+  }
+ },
+ "learned_ev": {
+  "mean_value": 0.03077,
+  "sem": 0.00351,
+  "n": 313,
+  "vs_heuristic": 0.0137,
+  "vs_heuristic_sem": 0.00434,
+  "action_mix": {
+   "DRIBBLE": 26,
+   "PASS": 29,
+   "LOB": 153,
+   "THROUGH": 82,
+   "SHOOT": 22,
+   "CROSS": 1
+  }
+ },
+ "policy_only": {
+  "mean_value": 0.01709,
+  "sem": 0.00249,
+  "n": 313,
+  "vs_heuristic": 3e-05,
+  "vs_heuristic_sem": 0.00229,
+  "action_mix": {
+   "HOLD": 298,
+   "THROUGH": 3,
+   "PASS": 10,
+   "LOB": 1,
+   "SHOOT": 1
+  }
+ },
+ "learned_ev+policy(0.01)": {
+  "mean_value": 0.02144,
+  "sem": 0.00311,
+  "n": 313,
+  "vs_heuristic": 0.00438,
+  "vs_heuristic_sem": 0.00393,
+  "action_mix": {
+   "HOLD": 127,
+   "PASS": 80,
+   "LOB": 28,
+   "SHOOT": 22,
+   "THROUGH": 55,
+   "CROSS": 1
+  }
+ },
+ "platt_ev+policy(0.01)": {
+  "mean_value": 0.01168,
+  "sem": 0.00307,
+  "n": 313,
+  "vs_heuristic": -0.00539,
+  "vs_heuristic_sem": 0.0038,
+  "action_mix": {
+   "HOLD": 148,
+   "THROUGH": 86,
+   "SHOOT": 22,
+   "PASS": 51,
+   "LOB": 6
+  }
+ },
+ "sim_policy": {
+  "mean_value": 0.02728,
+  "sem": 0.00342,
+  "n": 313,
+  "vs_heuristic": 0.01021,
+  "vs_heuristic_sem": 0.00416
+ }
+}

@@ -1,0 +1,35 @@
+{
+ "input": [
+  384,
+  640
+ ],
+ "results": [
+  {
+   "variant": "fp32",
+   "provider": "CPUExecutionProvider",
+   "ms_mean": 45.087,
+   "ms_p95": 64.128,
+   "f1": 0.9422,
+   "ball_recall": 0.2333,
+   "controlled_acc": 0.0833
+  },
+  {
+   "variant": "int8",
+   "provider": "CPUExecutionProvider",
+   "ms_mean": 37.486,
+   "ms_p95": 50.65,
+   "f1": 0.9351,
+   "ball_recall": 0.2333,
+   "controlled_acc": 0.0667
+  }
+ ],
+ "recommended": {
+  "variant": "int8",
+  "provider": "CPUExecutionProvider",
+  "ms_mean": 37.486,
+  "ms_p95": 50.65,
+  "f1": 0.9351,
+  "ball_recall": 0.2333,
+  "controlled_acc": 0.0667
+ }
+}

@@ -30,6 +30,9 @@ the reason for each: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
 ## Quick start (Windows, Python 3.10+)
 
+`scripts\setup_windows.bat` does all of this; `scripts\replay.bat` and
+`scripts\live.bat` are shortcuts. Manually:
+
 ```bat
 python -m venv .venv && .venv\Scripts\activate
 pip install -e .[dev]
@@ -50,8 +53,8 @@ python tools\overlay_demo.py --video data\synthetic\clip01.mp4             :: re
 ```
 
 Replay keys: `SPACE` play/pause, `A/D` or arrows step, `W/S` speed (0.1×–2×),
-`Q/E` ±5 s, `O` overlay, `G` debug panel, `C` confidence, `2` secondary
-action, `H` help. The panel under the video shows the timeline with
+`Q/E` ±5 s, `O` overlay, `G` debug panel, `T` tracking view (persistent ids,
+roles, teams, ball owner), `C` confidence, `2` secondary action, `H` help. The panel under the video shows the timeline with
 recommendation changes (ticks) and the human's actions (triangles, red =
 failed), the current recommendation, alternatives, and the next human action
 with its outcome.
@@ -107,7 +110,17 @@ on synthetic FC-style footage with ground truth, not real FC 27.
 | Full state (clip01) | player position 0.27 m, team 100 %, controlled 96 %, ball 0.24 m, possession 88 %, ~19 ms/frame total |
 | Live loop (video as capture, VM under load) | e2e 40 ms mean / 64 ms p95 from frame available to overlay presented; stale frames dropped |
 | Decision auto-labelling (perfect state / vision state) | action recall 1.00 / 0.62, precision 0.99 / 0.83 |
-| Learned success model vs physics | log-loss 0.25 vs 1.64, ECE 0.02 vs 0.34, AUC 0.87 vs 0.83 |
+| Learned success model vs physics (held-out sim match) | log-loss 0.25 vs 1.88, ECE 0.013 vs 0.49, AUC 0.88 vs 0.81 |
+| Ranking: counterfactual simulator test (313 paired decisions, actions actually executed) | learned EV ranker beats the heuristic by +0.0105 ± 0.0038 goal-units per decision (2.8σ); heuristic still below the simulator's own policy → see `docs/results/` |
+| Movement prediction (held-out sim match, mean error 0.25–1.5 s) | learned MLP 0.95 m vs damped-velocity 1.22 m vs constant-velocity 1.24 m (1.5 s: 2.36 vs 2.95 m) |
+| Overlay render at 1440p | 1.4 ms mean (2.3 p95); 3.1 ms with debug panel |
+| `detect_every=2` (radar + tracker bridge) | same accuracy (pos 0.23 m, controlled 98.7 %), ~25 % less per-frame cost → default in `configs/fc27_1440p.json` |
 
-See `benchmarks/` for full reports. Known limitations are listed in
+Learned models in `models/` are trained on synthetic/simulator data to prove
+the pipeline; the default config therefore keeps the heuristic ranker,
+kinematic predictor and colour detector. Switch with `--ranker registry`,
+`--predictor registry`, `runtime.detector = "onnx"` after retraining on your
+FC 27 recordings.
+
+Raw result files: `docs/results/`; new runs of `fctac.benchmark.run_all` go to `benchmarks/`. Known limitations are listed in
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
