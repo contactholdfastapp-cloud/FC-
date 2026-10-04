@@ -95,8 +95,8 @@ class VisionAnalyzer:
 
     @classmethod
     def from_files(cls, config_path: str = "", calib_path: Optional[str] = None, width: int = 0, height: int = 0,
-                   **kw) -> "VisionAnalyzer":
-        cfg = load_config(config_path or None)
+                   overrides: Optional[dict] = None, **kw) -> "VisionAnalyzer":
+        cfg = load_config(config_path or None, overrides)
         H = None
         if calib_path:
             with open(calib_path) as f:
@@ -131,8 +131,11 @@ class VisionAnalyzer:
             with tm.stage("radar"):
                 b = self.tracker.ball
                 radar = self.radar.read(frame, b.kf.pos if b.kf is not None else None)
-        dets = self.last_dets
-        if self.n % max(1, self.cfg.runtime.detect_every) == 0:
+        # main-view detection may run at a lower rate; skipped frames use the radar
+        # only (never re-feed stale detections -- the camera has moved since)
+        dets: list = []
+        detected = self.n % max(1, self.cfg.runtime.detect_every) == 0
+        if detected:
             with tm.stage("detect"):
                 dets = self.detector.detect(frame, self._ball_prior(t))
                 self.last_dets = dets
@@ -145,7 +148,9 @@ class VisionAnalyzer:
                 for d, tt, cc in zip(players, team, conf):
                     d.team, d.team_conf = int(tt), float(cc)
         with tm.stage("calib"):
-            if radar is not None and radar.ok:
+            if not detected:
+                H, cconf = self.calib.H, self.calib.conf
+            elif radar is not None and radar.ok:
                 H, cconf = self.calib.update(players, radar.points, radar.teams, w, h)
                 if cconf >= 0.5:
                     # detections registered to radar dots inherit the radar's team label

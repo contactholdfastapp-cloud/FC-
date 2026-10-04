@@ -139,6 +139,7 @@ def main():
     ap.add_argument("--seeds", nargs="*", type=int, default=[1, 2, 3, 4])
     ap.add_argument("--out", default="runs/predictor")
     ap.add_argument("--register", action="store_true")
+    ap.add_argument("--epochs", type=int, default=25)
     a = ap.parse_args()
     from fctac.prediction.learned import LearnedPredictor
     data = []
@@ -152,7 +153,7 @@ def main():
     Ytr = np.concatenate([d[1] for d in data[:-2]])
     Vtr = np.concatenate([d[3] for d in data[:-2]])
     tau = fit_tau(Vtr, Ytr)
-    spec = train_mlp(Xtr, Ytr, val[0], val[1])
+    spec = train_mlp(Xtr, Ytr, val[0], val[1], epochs=a.epochs)
     spec["tau_fallback"] = tau
     spec["horizons"] = list(HORIZONS)
     os.makedirs(a.out, exist_ok=True)

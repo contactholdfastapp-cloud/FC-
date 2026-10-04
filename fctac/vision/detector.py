@@ -29,6 +29,7 @@ class DetectorConfig:
     indicator_hue_tol: int = 8
     hud_masks: list = field(default_factory=lambda: [(0.415, 0.795, 0.585, 0.985), (0.0, 0.0, 0.3, 0.12)])
     ball_full_res: bool = True              # refine ball at full resolution around prior
+    resize: str = "area"                    # area (default: keeps the ball at 1440p) | linear (~4 ms faster, loses ball recall)
 
 
 class ColorDetector:
@@ -56,7 +57,8 @@ class ColorDetector:
         ww = self.cfg.work_width
         s = ww / W
         wh = int(round(H * s))
-        small = cv2.resize(frame, (ww, wh), interpolation=cv2.INTER_AREA) if s != 1 else frame
+        interp = cv2.INTER_AREA if self.cfg.resize == "area" else cv2.INTER_LINEAR
+        small = cv2.resize(frame, (ww, wh), interpolation=interp) if s != 1 else frame
         self.last_scale = s
         hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
         grass = cv2.inRange(hsv, self.cfg.grass_lo, self.cfg.grass_hi)

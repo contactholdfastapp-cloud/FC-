@@ -40,5 +40,25 @@
    "created": "2026-10-04T13:24:47",
    "deployed": true
   }
+ ],
+ "predictor": [
+  {
+   "version": "predictor_v001",
+   "path": "models/predictor_v001.json",
+   "metrics": {
+    "0.25s": 0.131,
+    "0.5s": 0.364,
+    "0.75s": 0.687,
+    "1.0s": 1.189,
+    "1.5s": 2.359,
+    "ADE": 0.946,
+    "baseline_ADE": 1.215
+   },
+   "primary": "ADE",
+   "higher_is_better": false,
+   "data": "sim seeds [1, 2, 3, 4]",
+   "created": "2026-10-04T13:32:36",
+   "deployed": true
+  }
  ]
 }

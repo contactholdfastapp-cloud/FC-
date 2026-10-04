@@ -288,15 +288,30 @@ class ReplayViewer:
                 "latency": self.cache.stats.summary()}
 
 
+def runtime_overrides(args) -> dict:
+    rt = {}
+    if getattr(args, "ranker", ""):
+        rt["ranker"] = args.ranker
+    if getattr(args, "predictor", ""):
+        rt["predictor"] = args.predictor
+    return {"runtime": rt} if rt else {}
+
+
 def build_analyzer(args, source: VideoSource):
     base = os.path.splitext(args.video)[0]
+    ov = runtime_overrides(args)
     if args.oracle:
+        from fctac.config import load_config
         from fctac.pipeline import OracleAnalyzer
         from fctac.state.gt import load_gt
+        from fctac.tactics.engine import TacticsEngine
+        from fctac.vision.analyzer import make_predictor, make_ranker
+        cfg = load_config(getattr(args, "config", "") or None, ov)
         gt = load_gt(args.gt or base + ".gt.jsonl")
-        return OracleAnalyzer(gt), events_from_gt(gt)
+        pred = make_predictor(cfg)
+        return OracleAnalyzer(gt, TacticsEngine(cfg.engine, ranker=make_ranker(cfg), predictor=pred), pred), events_from_gt(gt)
     from fctac.vision.analyzer import VisionAnalyzer
-    an = VisionAnalyzer.from_files(args.config, args.calib or None, source.width, source.height)
+    an = VisionAnalyzer.from_files(args.config, args.calib or None, source.width, source.height, overrides=ov)
     events = load_events(args.events) if args.events else []
     if not events and os.path.exists(base + ".gt.jsonl"):
         from fctac.state.gt import load_gt
@@ -317,6 +332,8 @@ def main(argv=None):
     ap.add_argument("--end", type=int, default=-1)
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--anchor", default="player", choices=("player", "top"))
+    ap.add_argument("--ranker", default="", help="heuristic | registry | path/to/ranker.json")
+    ap.add_argument("--predictor", default="", help="kinematic | registry | path/to/predictor.json")
     a = ap.parse_args(argv)
     src = VideoSource(a.video)
     an, events = build_analyzer(a, src)

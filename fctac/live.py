@@ -226,8 +226,12 @@ def main(argv=None):
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--seconds", type=float, default=0)
     ap.add_argument("--report", default="")
+    ap.add_argument("--ranker", default="", help="heuristic | registry | path/to/ranker.json")
+    ap.add_argument("--predictor", default="", help="kinematic | registry | path/to/predictor.json")
     a = ap.parse_args(argv)
-    cfg = load_config(a.config or None)
+    from fctac.replay.viewer import runtime_overrides
+    ov = runtime_overrides(a)
+    cfg = load_config(a.config or None, ov)
     cfg.overlay.show_debug = a.debug
     if sys.platform == "win32":
         from fctac.overlay.win32 import set_dpi_aware
@@ -241,7 +245,7 @@ def main(argv=None):
     from fctac.vision.analyzer import VisionAnalyzer
     if a.calib or a.config:
         w, h = getattr(src, "size", (0, 0)) or (0, 0)
-        an = VisionAnalyzer.from_files(a.config, a.calib or None, w, h)
+        an = VisionAnalyzer.from_files(a.config, a.calib or None, w, h, overrides=ov)
     else:
         an = VisionAnalyzer(cfg)
     if a.headless:

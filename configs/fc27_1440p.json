@@ -1,6 +1,6 @@
 {
  "capture": {"backend": "auto", "window_title": "FC 27", "width": 2560, "height": 1440, "target_fps": 60},
- "runtime": {"detector": "color", "detect_every": 1, "ranker": "heuristic", "predictor": "kinematic"},
+ "runtime": {"detector": "color", "detect_every": 2, "ranker": "heuristic", "predictor": "kinematic"},
  "radar": {"enabled": true, "rect": [0.415, 0.795, 0.585, 0.985], "pitch_rect": [0.0, 0.0, 1.0, 1.0]},
  "detector": {"work_width": 640, "hud_masks": [[0.415, 0.795, 0.585, 0.985], [0.0, 0.0, 0.3, 0.12]]},
  "state": {"attack_sign": 0},

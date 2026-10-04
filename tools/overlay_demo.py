@@ -33,6 +33,8 @@ def main():
     ap.add_argument("--config", default="")
     ap.add_argument("--calib", default="")
     ap.add_argument("--seconds", type=float, default=0)
+    ap.add_argument("--ranker", default="")
+    ap.add_argument("--predictor", default="")
     a = ap.parse_args()
     src = VideoSource(a.video)
     an, _ = build_analyzer(a, src)
