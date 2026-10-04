@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+# large/generated data: regenerate with tools/
+data/synthetic/
+data/recordings/
+data/datasets/
+data/frames/
+runs/
+models/*.pt
+*.mp4
+*.avi
+*.mkv
+machine_report.json

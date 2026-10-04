@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fctac"
+version = "0.1.0"
+description = "Local real-time tactical vision assistant for FC 27 (read-only, pixels in -> overlay out)"
+requires-python = ">=3.10"
+# Runtime core. Each dependency is justified in docs/DEPENDENCIES.md.
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8,<5",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+# learned-model inference (vision CNN). Use onnxruntime-gpu or onnxruntime-directml on Windows.
+infer = ["onnxruntime>=1.16"]
+# training only, never needed at runtime
+train = ["torch>=2.1"]
+# live capture on Windows (pick one; see docs)
+win = ["windows-capture>=1.4", "dxcam>=0.0.5"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+fctac-replay = "fctac.replay.viewer:main"
+fctac-live = "fctac.live:main"
+
+[tool.setuptools.packages.find]
+include = ["fctac*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
