@@ -26,10 +26,15 @@ def xg(p) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-z))
 
 
+XG_WEIGHT = 0.45   # share of the shot chance credited to merely *having* the ball at p:
+                   # V(p) must stay below xG(p) where shooting is the best option, otherwise
+                   # holding the ball "double counts" the shot and shooting never wins
+
+
 def zone_value(p) -> np.ndarray:
     p = np.atleast_2d(np.asarray(p, dtype=np.float64))
     x = np.clip(p[:, 0], 0, L) / L
-    return 0.01 + 0.06 * x ** 2 + 0.8 * xg(p)
+    return 0.01 + 0.06 * x ** 2 + XG_WEIGHT * xg(p)
 
 
 def turnover_cost(p) -> np.ndarray:

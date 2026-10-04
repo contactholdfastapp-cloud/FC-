@@ -227,6 +227,22 @@ def find_window(title_substrings=("FC 27", "FC27", "FC 26", "FC 25")) -> int | N
     return found[0] if found else None
 
 
+def frame_bounds(hwnd) -> tuple[int, int, int, int]:
+    """Visible window bounds (x, y, w, h) as composed by DWM -- what Windows
+    Graphics Capture returns for a window (includes title bar in windowed mode)."""
+    r = wintypes.RECT()
+    try:
+        dwm = ctypes.WinDLL("dwmapi")
+        DWMWA_EXTENDED_FRAME_BOUNDS = 9
+        if dwm.DwmGetWindowAttribute(wintypes.HWND(hwnd), DWMWA_EXTENDED_FRAME_BOUNDS,
+                                     ctypes.byref(r), ctypes.sizeof(r)) == 0:
+            return r.left, r.top, r.right - r.left, r.bottom - r.top
+    except Exception:
+        pass
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    return r.left, r.top, r.right - r.left, r.bottom - r.top
+
+
 def client_rect_on_screen(hwnd) -> tuple[int, int, int, int]:
     """(x, y, w, h) of a window's client area in screen pixels."""
     r = wintypes.RECT()

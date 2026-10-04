@@ -72,6 +72,7 @@ class Win32Presenter:
         from fctac.overlay.win32 import LayeredOverlay
         self.ov = LayeredOverlay(x, y, w, h)
         self.prev_dirty = None
+        self.n = 0
 
     def present(self, canvas, frame=None):
         d = canvas.dirty
@@ -82,6 +83,9 @@ class Win32Presenter:
         else:
             self.ov.pump()
         self.prev_dirty = d
+        self.n += 1
+        if self.n % 120 == 0:            # games can grab top-most z-order: re-assert
+            self.ov.keep_on_top()
 
     def close(self):
         self.ov.close()

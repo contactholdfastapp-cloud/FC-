@@ -46,6 +46,13 @@ class WGCSource(FrameSource):
         self.title = buf.value
         self.hwnd = hwnd
         self.region = region
+        if not region:
+            # WGC captures the whole visible window; analyse (and overlay) only the
+            # client area so capture pixels and overlay pixels line up exactly
+            fx, fy, fw, fh = win32.frame_bounds(hwnd)
+            cx, cy, cw, ch = win32.client_rect_on_screen(hwnd)
+            if (cw, ch) != (fw, fh) and cw > 0 and ch > 0:
+                self.region = (max(0, cx - fx), max(0, cy - fy), cw, ch)
         self._cap = WindowsCapture(cursor_capture=False, draw_border=draw_border, window_name=self.title)
         self._size = (0, 0)
         self._control = None

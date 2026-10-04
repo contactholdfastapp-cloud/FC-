@@ -22,10 +22,19 @@ from fctac import types as T
 from fctac.sim.match import MatchSim, SimConfig
 from fctac.state.gt import state_from_gt
 from fctac.tactics.candidates import CandidateGenerator
-from fctac.tactics.value import turnover_cost, zone_value
 
 SIM_KIND = {T.PASS: "pass", T.THROUGH: "through", T.LOB: "lob", T.CROSS: "cross", T.SHOOT: "shot",
             T.DRIBBLE: "dribble", T.HOLD: "hold"}
+
+
+def eval_value(p) -> float:
+    """Fixed terminal value used ONLY for evaluation.  Deliberately independent of
+    the tactical value function (which is a tunable part of the policy), so runs
+    with different policies/value settings stay comparable."""
+    from fctac.tactics.value import xg
+    p = np.atleast_2d(np.asarray(p, float))
+    x = np.clip(p[:, 0], 0, T.PITCH_LENGTH) / T.PITCH_LENGTH
+    return float((0.01 + 0.06 * x ** 2 + 0.8 * xg(p))[0])
 
 
 def situation_value(sim: MatchSim, scored_before: int) -> float:
@@ -33,11 +42,13 @@ def situation_value(sim: MatchSim, scored_before: int) -> float:
         return 1.0
     b = sim.to_team(sim.ball, 0)
     poss = sim.poss_team()
+    own = eval_value(b)
+    theirs = eval_value(T.PITCH_SIZE - b) + 0.01
     if poss == 0:
-        return float(zone_value(b)[0])
+        return own
     if poss == 1:
-        return -float(turnover_cost(b)[0])
-    return 0.5 * float(zone_value(b)[0]) - 0.5 * float(turnover_cost(b)[0])
+        return -theirs
+    return 0.5 * own - 0.5 * theirs
 
 
 def rollout(sim: MatchSim, action: T.Action, sign: int, horizon_s: float, seed: int) -> float:

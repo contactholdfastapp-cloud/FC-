@@ -63,7 +63,11 @@ def fake_windows(monkeypatch):
         r._obj.right, r._obj.bottom = 2560, 1440
         return 1
 
-    impls = {"CreateDIBSection": create_dib, "EnumWindows": enum_windows, "GetWindowTextW": get_text,
+    def frame_attr(hwnd, attr, r, size):
+        r._obj.left, r._obj.top, r._obj.right, r._obj.bottom = 92, 19, 2668, 1498   # frame incl. title bar
+        return 0
+
+    impls = {"CreateDIBSection": create_dib, "DwmGetWindowAttribute": frame_attr, "EnumWindows": enum_windows, "GetWindowTextW": get_text,
              "GetWindowTextLengthW": lambda h: 15, "IsWindowVisible": lambda h: 1,
              "PeekMessageW": lambda *a: 0, "ClientToScreen": client_to_screen, "GetClientRect": get_client_rect,
              "GetAsyncKeyState": lambda vk: 0}
@@ -101,7 +105,7 @@ def test_layered_overlay_present(fake_windows):
 def test_wgc_source_delivers_bgr_frames(fake_windows, monkeypatch):
     class Frame:
         def __init__(self):
-            self.frame_buffer = np.full((36, 64, 4), 7, np.uint8)
+            self.frame_buffer = np.full((1479, 2576, 4), 7, np.uint8)   # whole window incl. title bar
 
     class WindowsCapture:
         def __init__(self, **kw):
@@ -121,8 +125,9 @@ def test_wgc_source_delivers_bgr_frames(fake_windows, monkeypatch):
     cw = importlib.import_module("fctac.capture.windows")
     src = cw.WGCSource("FC 27").start()
     f = src.buffer.get(-1, timeout=1.0)
-    assert f is not None and f.image.shape == (36, 64, 3) and src.buffer.dropped == 2
+    assert f is not None and f.image.shape == (1440, 2560, 3) and src.buffer.dropped == 2
     assert src._cap.kw["window_name"] == "EA SPORTS FC 27"
+    assert src.region == (8, 31, 2560, 1440)          # client area inside the captured window
     src.stop()
 
 
