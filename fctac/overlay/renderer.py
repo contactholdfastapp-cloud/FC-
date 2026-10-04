@@ -43,6 +43,7 @@ class OverlayConfig:
     avoid_rects: tuple = ((0.415, 0.795, 0.585, 0.985), (0.0, 0.0, 0.3, 0.12))   # HUD: radar, scoreboard
     scale: float = 1.0               # UI scale (1.0 tuned for 720p; scales with height automatically)
     min_draw_calib: float = 0.35     # below this the arrow is not drawn (label only)
+    fade_in_s: float = 0.15          # a new recommendation fades in (starts at 55 % opacity)
 
 
 def _pt(p) -> tuple[int, int]:
@@ -177,6 +178,8 @@ class OverlayRenderer:
         self.cfg = cfg
         self.canvas = Canvas(width, height)
         self.k = cfg.scale * (height / 720.0)
+        self._last_key = None
+        self._changed_t = 0.0
 
     # --- projection helpers ---------------------------------------------------
     @staticmethod
@@ -213,9 +216,20 @@ class OverlayRenderer:
                 self._draw_action(st, H, rec.action, secondary=False)
             # without a reliable screen mapping the label alone is shown (top centre)
             self._draw_label(st, H, rec)
-        elif rec.status == T.STATUS_ANALYSING and self.cfg.show_analysing:
-            k = self.k
-            c.text("ANALYSING", (c.w // 2 - int(60 * k), int(40 * k)), 0.6 * k, NEUTRAL, 1, 170)
+            key = rec.action.key()
+            if key != self._last_key:
+                self._last_key, self._changed_t = key, fa.t
+            age = fa.t - self._changed_t
+            if 0 <= age < self.cfg.fade_in_s and c.dirty is not None:
+                f = 0.55 + 0.45 * age / self.cfg.fade_in_s
+                x0, y0, x1, y1 = c.dirty
+                roi = c.img[y0:y1, x0:x1]
+                cv2.convertScaleAbs(roi, dst=roi, alpha=f)     # premultiplied: uniform opacity scale
+        else:
+            self._last_key = None
+            if rec.status == T.STATUS_ANALYSING and self.cfg.show_analysing:
+                k = self.k
+                c.text("ANALYSING", (c.w // 2 - int(60 * k), int(40 * k)), 0.6 * k, NEUTRAL, 1, 170)
         if self.cfg.show_debug and debug_lines:
             self._draw_debug(debug_lines)
         return c
