@@ -15,3 +15,5 @@ models/*.pt
 *.avi
 *.mkv
 machine_report.json
+data/decisions/
+models/trt_cache/
