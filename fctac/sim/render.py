@@ -292,11 +292,14 @@ def draw_radar(img, snap, col_us, col_them, rect=RADAR_RECT):
     cv2.line(img, P(L / 2, 0), P(L / 2, W), lc, 1)
     for gx, s in ((0, 1), (L, -1)):
         cv2.rectangle(img, P(gx, (W + pm.PEN_WIDTH) / 2), P(gx + s * pm.PEN_DEPTH, (W - pm.PEN_WIDTH) / 2), lc, 1)
+    k = h / 720.0                       # HUD scales with resolution, like the game's
+    r_dot, r_ring, r_ball = max(2, round(3 * k)), max(4, round(5 * k)), max(1, round(2 * k))
+    th = max(1, round(k))
     for p in snap["players"]:
         c = col_us if p["team"] == 0 else col_them
         q = P(p["x"], p["y"])
-        cv2.circle(img, q, 3, c, -1, cv2.LINE_AA)
+        cv2.circle(img, q, r_dot, c, -1, cv2.LINE_AA)
         if p["controlled"]:
-            cv2.circle(img, q, 5, (0, 230, 255), 1, cv2.LINE_AA)
+            cv2.circle(img, q, r_ring, (0, 230, 255), th, cv2.LINE_AA)
     b = snap["ball"]
-    cv2.circle(img, P(b["x"], b["y"]), 2, (255, 255, 255), -1, cv2.LINE_AA)
+    cv2.circle(img, P(b["x"], b["y"]), r_ball, (255, 255, 255), -1, cv2.LINE_AA)

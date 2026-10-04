@@ -1,0 +1,163 @@
+"""Screen <-> pitch calibration by registering main-view detections to the radar.
+
+The radar gives every player's pitch position; the detector gives their foot
+points on screen.  Matching the two sets yields point correspondences, from
+which a free homography (screen -> raw pitch) is estimated each frame:
+  * works for any camera style (no fixed camera model needed),
+  * handles pan/zoom/tilt changes automatically,
+  * self-validates: inlier count + residual -> calibration confidence.
+
+Initialisation (no previous homography) searches a coarse grid of broadcast
+cameras for the one that best explains detections given the radar, then
+refines.  Manual landmark calibration (tools/calibrate.py) can seed it too.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional
+
+import cv2
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+
+from fctac import types as T
+from fctac.pitch.camera import CameraParams, apply_h
+
+
+@dataclass
+class CalibConfig:
+    min_matches: int = 6
+    gate_init_m: float = 6.0
+    gate_m: float = 2.5
+    ransac_m: float = 1.5
+    team_penalty_m: float = 4.0
+    lost_after: int = 20             # frames of failed updates before re-initialising
+    cam_pos: tuple = (52.5, -40.0, 20.0)   # typical broadcast camera for the init search
+    hold_conf_decay: float = 0.93    # confidence decay per frame while coasting
+
+
+class RadarViewCalibrator:
+    def __init__(self, cfg: CalibConfig = CalibConfig()):
+        self.cfg = cfg
+        self.H: Optional[np.ndarray] = None      # screen -> raw pitch
+        self.conf = 0.0
+        self.fails = 0
+        self.last_matches: list = []
+        self.last_rmse = 0.0
+
+    def set_manual(self, H_img2pitch: np.ndarray, conf: float = 0.9):
+        self.H = H_img2pitch / H_img2pitch[2, 2]
+        self.conf = conf
+        self.fails = 0
+
+    def reset(self):
+        self.H = None
+        self.conf = 0.0
+        self.fails = 0
+
+    # ------------------------------------------------------------------------
+    def update(self, dets: list, radar_pts: np.ndarray, radar_teams: np.ndarray, width: int, height: int):
+        players = [d for d in dets if d.cls == T.CLS_PLAYER and d.team != T.TEAM_REF]
+        if len(players) < self.cfg.min_matches or len(radar_pts) < self.cfg.min_matches:
+            return self._coast()
+        img = np.array([[d.x, d.y] for d in players], float)
+        dteam = np.array([d.team for d in players], int)
+        H = self.H
+        gate = self.cfg.gate_m
+        if H is None:
+            H = self._init_search(img, radar_pts, width, height)
+            if H is None:
+                return self._coast()
+            gate = self.cfg.gate_init_m
+        best = None
+        for it in range(3):
+            pp = apply_h(H, img)
+            D = np.linalg.norm(pp[:, None, :] - radar_pts[None, :, :], axis=2)
+            known = (dteam[:, None] >= 0) & (radar_teams[None, :] >= 0)
+            D = D + np.where(known & (dteam[:, None] != radar_teams[None, :]), self.cfg.team_penalty_m, 0.0)
+            a, b = linear_sum_assignment(D)
+            ok = D[a, b] < (max(gate, 5.0) if it == 0 else self.cfg.gate_m)
+            a, b = a[ok], b[ok]
+            if len(a) < self.cfg.min_matches:
+                break
+            Hn, mask = cv2.findHomography(img[a], radar_pts[b], cv2.RANSAC, self.cfg.ransac_m)
+            if Hn is None or not self._plausible(Hn, width, height):
+                break
+            inl = mask.ravel().astype(bool)
+            if inl.sum() < self.cfg.min_matches:
+                break
+            res = np.linalg.norm(apply_h(Hn, img[a][inl]) - radar_pts[b][inl], axis=1)
+            H = Hn / Hn[2, 2]
+            best = (H, int(inl.sum()), float(np.sqrt(np.mean(res ** 2))), list(zip(a[inl], b[inl])))
+        if best is None:
+            return self._coast()
+        H, n, rmse, matches = best
+        self.H = H
+        self.fails = 0
+        self.last_matches = matches
+        self.last_rmse = rmse
+        self.conf = float(np.clip((n - 4) / 8.0, 0, 1) * np.exp(-rmse / 1.5))
+        return self.H, self.conf
+
+    def _coast(self):
+        self.fails += 1
+        self.conf *= self.cfg.hold_conf_decay
+        if self.fails > self.cfg.lost_after:
+            self.reset()
+        return self.H, self.conf
+
+    @staticmethod
+    def _plausible(H, width, height) -> bool:
+        """Reject degenerate fits: image corners must map to a sane, non-flipped area."""
+        c = np.array([[0, height * 0.35], [width, height * 0.35], [width, height], [0, height]], float)
+        q = apply_h(H, c)
+        if not np.all(np.isfinite(q)) or np.abs(q).max() > 400:
+            return False
+        # the visible ground quad must have a real area (not collapsed to a line)
+        def cross2(a, b):
+            return a[0] * b[1] - a[1] * b[0]
+        area = 0.5 * cross2(q[1] - q[0], q[3] - q[0]) + 0.5 * cross2(q[3] - q[2], q[1] - q[2])
+        return abs(area) > 50
+
+    def _grid_scores(self, fk, tl, yw, img, radar_pts, width, height):
+        cx, cy, cz = self.cfg.cam_pos
+        f = fk * width
+        cyw, syw, ct, st = np.cos(yw), np.sin(yw), np.cos(tl), np.sin(tl)
+        fwd = np.stack([syw * ct, cyw * ct, -st], 1)
+        right = np.stack([cyw, -syw, np.zeros_like(yw)], 1)
+        down = np.cross(fwd, right)
+        R = np.stack([right, down, fwd], 1)                                  # (N,3,3)
+        P = np.c_[radar_pts, np.zeros(len(radar_pts))] - np.array([cx, cy, cz])
+        Xc = np.einsum("nij,pj->npi", R, P)                                   # (N,P,3)
+        z = Xc[..., 2]
+        zs = np.where(np.abs(z) < 1e-6, 1e-6, z)
+        u = (f[:, None] * Xc[..., 0] / zs + width / 2) / width
+        v = (f[:, None] * Xc[..., 1] / zs + height / 2) / width
+        vis = (z > 0) & (u > -0.04) & (u < 1.04) & (v > -0.04) & (v < height / width + 0.04)
+        imgn = img / width
+        d = np.hypot(imgn[None, :, 0, None] - u[:, None, :], imgn[None, :, 1, None] - v[:, None, :])   # (N,D,P)
+        d = np.where(vis[:, None, :], d, 1.0)
+        s1 = np.minimum(d.min(2), 0.05).mean(1)
+        dp = np.where(vis, np.minimum(d.min(1), 0.05), 0.0)
+        s2 = dp.sum(1) / np.maximum(vis.sum(1), 1)
+        return np.where(vis.sum(1) >= 4, s1 + 0.5 * s2, np.inf)
+
+    def _init_search(self, img: np.ndarray, radar_pts: np.ndarray, width: int, height: int) -> Optional[np.ndarray]:
+        """Coarse-to-fine grid search over broadcast-camera yaw/tilt/zoom (vectorised)."""
+        fk, tl, yw = np.meshgrid(np.array([1.0, 1.25, 1.5, 1.8, 2.2, 2.7]), np.linspace(0.14, 0.50, 10),
+                                 np.linspace(-0.75, 0.75, 31), indexing="ij")
+        fk, tl, yw = fk.ravel(), tl.ravel(), yw.ravel()
+        sc = self._grid_scores(fk, tl, yw, img, radar_pts, width, height)
+        k = int(np.argmin(sc))
+        if not np.isfinite(sc[k]):
+            return None
+        f2, t2, y2 = np.meshgrid(fk[k] * np.linspace(0.85, 1.15, 9), tl[k] + np.linspace(-0.03, 0.03, 5),
+                                 yw[k] + np.linspace(-0.04, 0.04, 5), indexing="ij")
+        f2, t2, y2 = f2.ravel(), t2.ravel(), y2.ravel()
+        sc2 = self._grid_scores(f2, t2, y2, img, radar_pts, width, height)
+        j = int(np.argmin(sc2))
+        if not np.isfinite(sc2[j]) or sc2[j] > 0.03:
+            return None
+        cx, cy, cz = self.cfg.cam_pos
+        cam = CameraParams(cx, cy, cz, float(y2[j]), float(t2[j]), float(f2[j] * width), width, height)
+        return cam.H_img2pitch()

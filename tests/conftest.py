@@ -13,5 +13,5 @@ def synth_clip(tmp_path_factory):
     from tools.make_synthetic import generate
     d = tmp_path_factory.mktemp("synth")
     out = str(d / "clip")
-    generate(out, seconds=6, seed=3, width=640, height=360, fps=30, kit_us="red", kit_them="blue", attack_sign=1)
+    generate(out, seconds=6, seed=3, width=960, height=540, fps=30, kit_us="red", kit_them="blue", attack_sign=1)
     return out

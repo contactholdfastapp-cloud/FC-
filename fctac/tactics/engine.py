@@ -85,15 +85,15 @@ class TacticsEngine:
     def quality(self, st: T.GameState) -> tuple[float, str]:
         if not st.valid:
             return 0.0, st.invalid_reason or "invalid state"
-        if st.calib_conf < self.cfg.min_calib_conf:
-            return 0.0, "camera calibration lost"
+        if st.state_conf < self.cfg.min_calib_conf:
+            return 0.0, "pitch state unreliable"
         if st.ball is None or st.ball.confidence < self.cfg.min_ball_conf:
             return 0.0, "ball not found"
         if st.controlled is None:
             return 0.0, "controlled player unknown"
         if len(st.players) < self.cfg.min_players:
             return 0.0, "too few players tracked"
-        q = min(st.calib_conf, st.ball.confidence, st.controlled.confidence)
+        q = min(st.state_conf, st.ball.confidence, st.controlled.confidence)
         return float(q), ""
 
     def decide(self, st: Optional[T.GameState]) -> tuple[list, T.Recommendation]:

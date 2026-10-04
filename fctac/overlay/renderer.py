@@ -40,7 +40,8 @@ class OverlayConfig:
     show_debug: bool = False
     show_analysing: bool = True
     label_anchor: str = "player"     # "player" (above controlled player) or "top"
-    scale: float = 1.0               # UI scale (1.0 tuned for 1280x720; auto x1.5 at 1080p)
+    scale: float = 1.0               # UI scale (1.0 tuned for 720p; scales with height automatically)
+    min_draw_calib: float = 0.35     # below this the arrow is not drawn (label only)
 
 
 def _pt(p) -> tuple[int, int]:
@@ -202,11 +203,13 @@ class OverlayRenderer:
         c.clear()
         rec = fa.recommendation
         st = fa.state
-        H = self._H_att2img(st)
-        if rec.status == T.STATUS_ACTIVE and rec.action is not None and H is not None and st.controlled is not None:
-            if self.cfg.show_secondary and rec.alternatives:
-                self._draw_action(st, H, rec.alternatives[0], secondary=True)
-            self._draw_action(st, H, rec.action, secondary=False)
+        H = self._H_att2img(st) if st is not None and st.calib_conf >= self.cfg.min_draw_calib else None
+        if rec.status == T.STATUS_ACTIVE and rec.action is not None and st is not None and st.controlled is not None:
+            if H is not None:
+                if self.cfg.show_secondary and rec.alternatives:
+                    self._draw_action(st, H, rec.alternatives[0], secondary=True)
+                self._draw_action(st, H, rec.action, secondary=False)
+            # without a reliable screen mapping the label alone is shown (top centre)
             self._draw_label(st, H, rec)
         elif rec.status == T.STATUS_ANALYSING and self.cfg.show_analysing:
             k = self.k
@@ -295,8 +298,8 @@ class OverlayRenderer:
         verb = a.kind
         if a.kind == T.SHOOT:
             parts.append(("text", "SHOOT"))
-            me = self._player_screen(H, st.controlled)
-            if a.target_point is not None:
+            me = self._player_screen(H, st.controlled) if H is not None else None
+            if a.target_point is not None and me is not None:
                 d = apply_h(H, a.target_point) - me
                 parts.append(("arrow", float(np.arctan2(d[1], d[0]))))
             return parts
@@ -316,7 +319,7 @@ class OverlayRenderer:
         parts = self._label_parts(st, H, a)
         w = _label_size(parts, scale, th)
         hgt = int(30 * k)
-        if self.cfg.label_anchor == "top":
+        if self.cfg.label_anchor == "top" or H is None:
             x0, y0 = c.w // 2 - w // 2, int(18 * k)
         else:
             me = self._player_screen(H, st.controlled)

@@ -22,7 +22,7 @@ def test_canvas_premultiplied_and_composite():
 def test_overlay_draws_active_recommendation(synth_clip):
     gt = load_gt(synth_clip + ".gt.jsonl")
     an = OracleAnalyzer(gt)
-    ov = OverlayRenderer(640, 360, OverlayConfig(show_debug=True))
+    ov = OverlayRenderer(960, 540, OverlayConfig(show_debug=True))
     drawn = 0
     for i in range(len(gt)):
         fa = an.process(None, i, i / 30)
@@ -41,7 +41,7 @@ def test_viewer_export_and_keys(synth_clip, tmp_path):
     src = VideoSource(synth_clip + ".mp4")
     v = ReplayViewer(src, OracleAnalyzer(gt), events_from_gt(gt))
     img = v.compose(10)
-    assert img.shape == (360 + PANEL_H, 640, 3)
+    assert img.shape == (540 + PANEL_H, 960, 3)
     # backward step uses the cache, forward continues sequentially
     v.idx = 10
     assert v.handle_key(ord("a")) and v.idx == 9

@@ -477,7 +477,7 @@ class MatchSim:
     def _shot_flight(self, ev):
         team = ev.team
         b = self.to_team(self.ball, team)
-        gk = [j for j in self.team_idx(1 - team) if self.roles[j] == "GK"][0]
+        gk = int([j for j in self.team_idx(1 - team) if self.roles[j] == "GK"][0])
         if self.shot_result == "saved" and b[0] > L - 6:
             self._resolve("saved", gk)
             self.owner = gk
@@ -495,7 +495,7 @@ class MatchSim:
                 self._goal_kick(1 - team)
 
     def _goal_kick(self, team):
-        gk = [j for j in self.team_idx(team) if self.roles[j] == "GK"][0]
+        gk = int([j for j in self.team_idx(team) if self.roles[j] == "GK"][0])
         p = self.from_team(np.array([5.5, W / 2 + self.rng.uniform(-8, 8)]), team)
         self.pos[gk] = p
         self.ball = p.copy()

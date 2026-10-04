@@ -102,7 +102,8 @@ class GameState:
     ball: Optional[BallState]
     attack_sign: int = 1            # +1: we attack towards raw x=105
     H_img2pitch: Optional[np.ndarray] = None   # 3x3, screen -> raw pitch
-    calib_conf: float = 0.0
+    calib_conf: float = 0.0         # reliability of the screen <-> pitch mapping (drawing)
+    state_conf: float = 1.0         # reliability of pitch positions (decisions)
     possession: int = TEAM_UNKNOWN  # team in possession
     controlled_id: Optional[int] = None
     valid: bool = True
