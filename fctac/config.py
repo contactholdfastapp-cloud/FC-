@@ -35,6 +35,9 @@ class RuntimeConfig:
     onnx_model: str = ""               # path to a registered detector model
     detect_every: int = 1              # run the main-view detector every N frames (tracker bridges)
     decision_hz: float = 30.0
+    ranker: str = "heuristic"          # heuristic | registry (deployed learned ranker) | path/to/ranker.json
+    ranker_mode: str = ""              # override the ranker's mode (learned_ev | platt_ev | policy_only)
+    predictor: str = "kinematic"       # kinematic | registry | path/to/predictor.json
 
 
 @dataclass

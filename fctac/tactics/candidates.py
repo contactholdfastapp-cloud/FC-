@@ -56,6 +56,39 @@ def _unit(v):
     return np.where(n > 1e-9, v / np.maximum(n, 1e-9), 0.0)
 
 
+class _Forecast:
+    """Receiver positions at arbitrary future times: interpolates the movement
+    predictor's per-player forecasts (PlayerState.predicted) when present,
+    otherwise falls back to the kinematic model."""
+
+    def __init__(self, players: list, pred):
+        self.pred = pred
+        hs = sorted(players[0].predicted) if players and all(p.predicted for p in players) else []
+        if hs and t_offset_safe(players):
+            self.h = np.array([0.0] + hs)
+            self.P = np.stack([np.stack([p.pos] + [p.predicted[h] for h in hs]) for p in players])   # (n,H,2)
+        else:
+            self.h = None
+
+    def at(self, t: np.ndarray, pos: np.ndarray, vel: np.ndarray) -> np.ndarray:
+        t = np.asarray(t, float).reshape(-1)
+        if self.h is None or len(t) != len(self.P):
+            return self.pred.predict_point(pos, vel, t[:, None])
+        out = np.empty((len(t), 2))
+        for i, ti in enumerate(t):
+            if ti <= self.h[-1]:
+                out[i, 0] = np.interp(ti, self.h, self.P[i, :, 0])
+                out[i, 1] = np.interp(ti, self.h, self.P[i, :, 1])
+            else:   # beyond the last horizon: continue the last segment, damped
+                v = (self.P[i, -1] - self.P[i, -2]) / (self.h[-1] - self.h[-2])
+                out[i] = self.P[i, -1] + v * 0.6 * (ti - self.h[-1])
+        return np.clip(out, [-2, -2], T.PITCH_SIZE + 2)
+
+
+def t_offset_safe(players) -> bool:
+    return all(len(p.predicted) >= 2 for p in players)
+
+
 class CandidateGenerator:
     def __init__(self, cfg: TacticsConfig = TacticsConfig(), predictor=None):
         self.cfg = cfg
@@ -79,9 +112,11 @@ class CandidateGenerator:
         opp_vel = np.array([o.vel for o in opps]).reshape(-1, 2)
         R_pos = np.array([p.pos for p in mates]).reshape(-1, 2)
         R_vel = np.array([p.vel for p in mates]).reshape(-1, 2)
+        fut = _Forecast(mates, self.pred)
         if t_offset > 0:
             opp_pos = self.pred.predict_point(opp_pos, opp_vel, t_offset) if len(opp_pos) else opp_pos
             R_pos = self.pred.predict_point(R_pos, R_vel, t_offset) if len(R_pos) else R_pos
+            fut.h = None
         if origin is None:
             origin = st.ball.pos.copy() if np.linalg.norm(st.ball.pos - me.pos) < 3 else me.pos.copy()
         origin = np.asarray(origin, float)
@@ -107,14 +142,14 @@ class CandidateGenerator:
                 v0 = ph.ground_v0(dd, pc.arrive_pass, pc)
                 tt, _ = ph.ground_times(dd, v0, pc)
                 tt = np.where(np.isfinite(tt), tt, 1.5)
-                tgt = self.pred.predict_point(R_pos, R_vel, tt[:, None])
+                tgt = fut.at(tt, R_pos, R_vel)
             dd = np.linalg.norm(tgt - origin, axis=1)
             v0 = ph.ground_v0(dd, pc.arrive_pass, pc)
             for i in np.where(ok)[0]:
                 add(T.PASS, i, tgt[i], False, v0[i], 0.0)
             # LOB / CROSS over the lines
             tf = ph.lob_time(d0, pc)
-            tl = self.pred.predict_point(R_pos, R_vel, tf[:, None])
+            tl = fut.at(tf, R_pos, R_vel)
             for i in np.where(ok & (d0 > cfg.lob_min_dist))[0]:
                 kind = T.CROSS if self._is_cross(origin, tl[i]) else T.LOB
                 add(kind, i, tl[i], True, 0.0, tf[i])
@@ -216,7 +251,8 @@ class CandidateGenerator:
                 kind=kinds[m], target_id=r.id, target_label=r.label, target_point=tg[m].copy(),
                 score=float(score[m]), p_success=float(p[m]), value_success=float(v_succ[m]),
                 detail={"p_intercept": float(ev["p_intercept"][m]), "t_arrive": float(ev["t_arrive"][m]),
-                        "offside": float(offside[m]), "space": float(space[m]), "lane": float(ev["lane"][m])},
+                        "offside": float(offside[m]), "space": float(space[m]), "lane": float(ev["lane"][m]),
+                        "cost": float(cost[m])},
                 features=F[m]))
         return out
 
@@ -240,9 +276,10 @@ class CandidateGenerator:
         p_goal = plan["p_goal"]
         score = p_goal + (1 - p_goal) * 0.015 - (1 - p_goal) * float(turnover_cost(np.array([L - 6, W / 2]))[0])
         f = self._generic_features(T.SHOOT, plan["target"], origin, ctx, p_goal, score, 0.0, plan["blockers"], 0.0)
+        detail = {k: plan[k] for k in ("placement", "power", "shot_type", "blockers")}
+        detail["cost"] = float(turnover_cost(np.array([L - 6, W / 2]))[0]) - 0.015
         return T.Action(kind=T.SHOOT, target_point=plan["target"], score=float(score), p_success=float(p_goal),
-                        value_success=1.0, detail={k: plan[k] for k in ("placement", "power", "shot_type", "blockers")},
-                        features=f)
+                        value_success=1.0, detail=detail, features=f)
 
     def _dribble(self, origin, opp_pos, opp_vel, ctx) -> T.Action:
         pc = self.cfg.physics
@@ -266,7 +303,8 @@ class CandidateGenerator:
         f = self._generic_features(T.DRIBBLE, q[k], origin, ctx, float(p[k]), float(score[k]),
                                    float(space[k]), float(congestion[k]), float(ahead[k]))
         return T.Action(kind=T.DRIBBLE, target_point=q[k].copy(), score=float(score[k]), p_success=float(p[k]),
-                        value_success=float(zone_value(q[k])[0]), detail={"space": float(space[k])}, features=f)
+                        value_success=float(zone_value(q[k])[0]),
+                        detail={"space": float(space[k]), "cost": float(turnover_cost(q[k])[0])}, features=f)
 
     def _hold(self, origin, ctx) -> T.Action:
         p = float(np.clip(1.0 - 0.28 * ctx["pressure"], 0.15, 0.97))
@@ -274,4 +312,5 @@ class CandidateGenerator:
         score = p * v - (1 - p) * float(turnover_cost(origin)[0]) - self.cfg.hold_tempo_cost
         f = self._generic_features(T.HOLD, origin, origin, ctx, p, score, ctx["nearest"], 0.0, 0.0)
         return T.Action(kind=T.HOLD, target_point=origin.copy(), score=float(score), p_success=p,
-                        value_success=v, features=f)
+                        value_success=v - self.cfg.hold_tempo_cost,
+                        detail={"cost": float(turnover_cost(origin)[0])}, features=f)

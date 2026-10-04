@@ -26,10 +26,42 @@ from fctac.vision.detector import ColorDetector
 from fctac.vision.radar import RadarReader
 
 
+def _from_registry(kind: str):
+    from fctac.training.registry import Registry
+    e = Registry().deployed(kind)
+    return e["path"] if e else None
+
+
+def make_ranker(cfg: AppConfig):
+    r = cfg.runtime.ranker
+    if r in ("", "heuristic"):
+        return None
+    path = _from_registry("ranker") if r == "registry" else r
+    if not path:
+        return None
+    from fctac.tactics.learned_ranker import LearnedRanker
+    return LearnedRanker(path, mode=cfg.runtime.ranker_mode or None)
+
+
+def make_predictor(cfg: AppConfig):
+    from fctac.prediction.kinematic import KinematicPredictor
+    p = cfg.runtime.predictor
+    if p in ("", "kinematic"):
+        return KinematicPredictor()
+    path = _from_registry("predictor") if p == "registry" else p
+    if not path:
+        return KinematicPredictor()
+    from fctac.prediction.learned import LearnedPredictor
+    return LearnedPredictor(path)
+
+
 def make_detector(cfg: AppConfig):
     if cfg.runtime.detector == "onnx":
         from fctac.vision.learned import OnnxDetector
-        return OnnxDetector(cfg.runtime.onnx_model, cfg.detector)
+        path = cfg.runtime.onnx_model or _from_registry("detector")
+        if not path:
+            raise RuntimeError("runtime.detector=onnx but no onnx_model given and no deployed detector in models/registry.json")
+        return OnnxDetector(path, cfg.detector)
     return ColorDetector(cfg.detector)
 
 
@@ -40,8 +72,8 @@ class VisionAnalyzer:
                  ranker=None, predictor=None):
         self.cfg = cfg or AppConfig()
         self.manual_H = manual_H
-        self.ranker = ranker
-        self.predictor = predictor or KinematicPredictor()
+        self.ranker = ranker if ranker is not None else make_ranker(self.cfg)
+        self.predictor = predictor or make_predictor(self.cfg)
         self._build()
 
     def _build(self):
@@ -115,6 +147,11 @@ class VisionAnalyzer:
         with tm.stage("calib"):
             if radar is not None and radar.ok:
                 H, cconf = self.calib.update(players, radar.points, radar.teams, w, h)
+                if cconf >= 0.5:
+                    # detections registered to radar dots inherit the radar's team label
+                    for di, ri in self.calib.last_matches:
+                        if di < len(players):
+                            players[di].team, players[di].team_conf = int(radar.teams[ri]), 1.0
                 self._learn_kits(players, radar)
             else:
                 H, cconf = self.calib._coast() if self.calib.H is not None else (None, 0.0)

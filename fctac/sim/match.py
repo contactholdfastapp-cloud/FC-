@@ -297,6 +297,12 @@ class MatchSim:
     def _carrier(self):
         i = self.owner
         team = self.team[i]
+        fd = getattr(self, "forced_dribble", None)
+        if fd is not None:
+            if fd[0] == i and self.t < fd[2]:
+                self._move(i, fd[1], 6.3 if np.linalg.norm(fd[1] - self.pos[i]) > 0.5 else 1.0)
+                return
+            self.forced_dribble = None
         me = self.to_team(self.pos[i], team)
         opp = self.team_idx(1 - team)
         opp_t = np.array([self.to_team(self.pos[j], team) for j in opp])
@@ -408,6 +414,27 @@ class MatchSim:
         self.owner = None
         self.last_touch_team = int(team)
         self.release_t = self.t
+
+    # --- external control (counterfactual evaluation) --------------------------
+    def force_action(self, kind: str, receiver: Optional[int] = None, target_raw=None):
+        """Make the current carrier execute an action now (used to evaluate
+        recommendations by rolling the match forward)."""
+        i = self.owner
+        if i is None:
+            return False
+        team = self.team[i]
+        if kind in ("pass", "through", "lob", "cross") and receiver is not None:
+            tgt = np.asarray(target_raw if target_raw is not None else self.pos[receiver], float)
+            self._pass(i, kind, int(receiver), np.clip(tgt, [1, 1], [L - 1, W - 1]))
+        elif kind == "shot":
+            self._shoot(i, self.to_team(self.pos[i], team))
+        elif kind == "dribble" and target_raw is not None:
+            self.forced_dribble = (i, np.asarray(target_raw, float), self.t + 1.0)
+            self.decision_at = self.t + 1.0
+        elif kind == "hold":
+            self.forced_dribble = (i, self.pos[i].copy(), self.t + 1.0)
+            self.decision_at = self.t + 1.0
+        return True
 
     # --- ball -------------------------------------------------------------
     def _ball_step(self):

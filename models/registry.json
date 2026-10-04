@@ -1,0 +1,24 @@
+{
+ "detector": [
+  {
+   "version": "detector_v001",
+   "path": "models/detector_v001.onnx",
+   "metrics": {
+    "player_precision": 0.9174,
+    "player_recall": 0.9683,
+    "f1": 0.9422,
+    "ball_precision": 0.525,
+    "ball_recall": 0.2442,
+    "controlled_acc": 0.0581,
+    "foot_err_px": 1.1,
+    "ms_mean": 9.24,
+    "images": 86
+   },
+   "primary": "f1",
+   "higher_is_better": true,
+   "data": "data/datasets/synth",
+   "created": "2026-10-04T12:38:47",
+   "deployed": true
+  }
+ ]
+}
