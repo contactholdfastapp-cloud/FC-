@@ -69,6 +69,9 @@ class OnnxDetector:
         self.thr = thr
         self.cfg = cfg
         self.buf = np.zeros((self.in_h, self.in_w, 3), np.uint8)
+        chans = meta.get("channels", [])
+        self.marker_mode = len(chans) > 2 and chans[2] == "controlled_marker"
+        self.marker_above = meta.get("marker_above", 1.15)
 
     @property
     def providers(self) -> list:
@@ -104,8 +107,16 @@ class OnnxDetector:
                 ctrl.append((sc, px / s, py / s))
         if ctrl and dets:
             sc, cx, cy = max(ctrl)
-            d = min(dets, key=lambda d: np.hypot(d.x - cx, d.y - cy))
-            if np.hypot(d.x - cx, d.y - cy) < max(d.h * 0.5, 8):
+            if self.marker_mode:
+                # marker above the head -> the player whose head is just below it
+                def cost(d):
+                    return abs(d.x - cx) / max(d.w, 1) + abs((d.y - self.marker_above * d.h) - cy) / max(d.h, 1)
+                d = min(dets, key=cost)
+                ok = cost(d) < 1.0
+            else:
+                d = min(dets, key=lambda d: np.hypot(d.x - cx, d.y - cy))
+                ok = np.hypot(d.x - cx, d.y - cy) < max(d.h * 0.5, 8)
+            if ok:
                 d.controlled, d.controlled_conf = True, sc
         if balls:
             if ball_prior is not None:

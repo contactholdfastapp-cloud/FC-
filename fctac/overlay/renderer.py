@@ -40,6 +40,7 @@ class OverlayConfig:
     show_debug: bool = False
     show_analysing: bool = True
     label_anchor: str = "player"     # "player" (above controlled player) or "top"
+    avoid_rects: tuple = ((0.415, 0.795, 0.585, 0.985), (0.0, 0.0, 0.3, 0.12))   # HUD: radar, scoreboard
     scale: float = 1.0               # UI scale (1.0 tuned for 720p; scales with height automatically)
     min_draw_calib: float = 0.35     # below this the arrow is not drawn (label only)
 
@@ -132,8 +133,9 @@ class Canvas:
         if x1 <= x0 or y1 <= y0:
             return
         roi = self.img[y0:y1, x0:x1]
-        a = alpha / 255.0
-        roi[:] = (roi.astype(np.float32) * (1 - a) + np.array(_rgba(color, alpha), np.float32)).astype(np.uint8)
+        # premultiplied "over": roi * (1 - a) + colour * a  (uint8, in place)
+        cv2.addWeighted(roi, 1.0 - alpha / 255.0, roi, 0.0, 0.0, dst=roi)
+        cv2.add(roi, _rgba(color, alpha), dst=roi)
         self.mark(x0, y0, x1, y1, 0)
 
     def text(self, s, org, scale, color, th=1, alpha=255, outline=True):
@@ -319,14 +321,20 @@ class OverlayRenderer:
         parts = self._label_parts(st, H, a)
         w = _label_size(parts, scale, th)
         hgt = int(30 * k)
-        if self.cfg.label_anchor == "top" or H is None:
+        me = self._player_screen(H, st.controlled) if H is not None else None
+        on_screen = me is not None and 0 <= me[0] < c.w and 0 <= me[1] < c.h
+        if self.cfg.label_anchor == "top" or not on_screen:
             x0, y0 = c.w // 2 - w // 2, int(18 * k)
         else:
-            me = self._player_screen(H, st.controlled)
             x0 = int(me[0] - w / 2)
             y0 = int(me[1] - 120 * k)
         x0 = int(np.clip(x0, 6, c.w - w - 18))
         y0 = int(np.clip(y0, 6, c.h - hgt - 40 * k))
+        # keep clear of the game's HUD (radar, scoreboard): move above it
+        for rx0, ry0, rx1, ry1 in self.cfg.avoid_rects:
+            X0, Y0, X1, Y1 = rx0 * c.w, ry0 * c.h, rx1 * c.w, ry1 * c.h
+            if x0 < X1 and x0 + w > X0 and y0 < Y1 and y0 + hgt + 30 * k > Y0:
+                y0 = int(Y0 - hgt - 34 * k) if Y0 > c.h / 2 else int(Y1 + 8 * k)
         pad = int(9 * k)
         c.rect(x0 - pad, y0, x0 + w + pad, y0 + hgt, (10, 10, 10), 150)
         bar = ACCENT if a.kind not in T.DEFENCE_KINDS or a.kind == T.SWITCH else ACCENT

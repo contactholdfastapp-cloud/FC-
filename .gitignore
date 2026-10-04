@@ -17,3 +17,6 @@ models/*.pt
 machine_report.json
 data/decisions/
 models/trt_cache/
+runs/
+benchmarks/*.json
+!benchmarks/.keep

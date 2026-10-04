@@ -18,6 +18,26 @@
    "higher_is_better": true,
    "data": "data/datasets/synth",
    "created": "2026-10-04T12:38:47",
+   "deployed": false
+  },
+  {
+   "version": "detector_v002",
+   "path": "models/detector_v002.onnx",
+   "metrics": {
+    "player_precision": 0.953,
+    "player_recall": 0.9776,
+    "f1": 0.9651,
+    "ball_precision": 0.537,
+    "ball_recall": 0.3372,
+    "controlled_acc": 0.0814,
+    "foot_err_px": 1.23,
+    "ms_mean": 33.7,
+    "images": 86
+   },
+   "primary": "f1",
+   "higher_is_better": true,
+   "data": "data/datasets/synth",
+   "created": "2026-10-04T13:24:47",
    "deployed": true
   }
  ]

@@ -146,10 +146,13 @@ def main():
     ap.add_argument("--rollouts", type=int, default=3)
     ap.add_argument("--ranker", default="runs/ranker/ranker.json")
     ap.add_argument("--max-decisions", type=int, default=0)
+    ap.add_argument("--only", nargs="*", default=None, help="subset of ranker names")
     a = ap.parse_args()
     import os
-    res = run(default_rankers(a.ranker if os.path.exists(a.ranker) else None), a.minutes, a.seed, a.rollouts,
-              max_decisions=a.max_decisions)
+    rk = default_rankers(a.ranker if os.path.exists(a.ranker) else None)
+    if a.only:
+        rk = {k: v for k, v in rk.items() if k in a.only}
+    res = run(rk, a.minutes, a.seed, a.rollouts, max_decisions=a.max_decisions)
     print(json.dumps(res, indent=1))
 
 

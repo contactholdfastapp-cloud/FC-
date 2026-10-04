@@ -28,6 +28,7 @@ from fctac.training.det_dataset import load_label, make_splits  # noqa: E402
 from fctac.training.det_model import N_HM, TinyCenterNet, focal_loss  # noqa: E402
 
 STRIDE = 4
+MARKER_ABOVE = 1.15     # controlled-player marker centre, in player heights above the feet
 
 
 def letterbox_params(w, h, in_w, in_h):
@@ -81,12 +82,17 @@ class DetDataset(Dataset):
                 chans, sig = [1], 0.8
             else:
                 chans, sig = [0], max(0.8, 0.12 * ph / STRIDE)
-                if o.get("controlled"):
-                    chans.append(2)
             g = np.exp(-((xx - ix) ** 2 + (yy - iy) ** 2) / (2 * sig * sig))
             for c in chans:
                 hm[c] = np.maximum(hm[c], g)
                 hm[c, iy, ix] = 1.0
+            if o["cls"] != "ball" and o.get("controlled"):
+                # the controlled cue is the marker above the head: target it directly
+                mx, my = int(ox), int((cy - MARKER_ABOVE * ph) / STRIDE)
+                if 0 <= mx < Wo and 0 <= my < Ho:
+                    gm = np.exp(-((xx - mx) ** 2 + (yy - my) ** 2) / (2 * 1.0))
+                    hm[2] = np.maximum(hm[2], gm)
+                    hm[2, my, mx] = 1.0
             off[:, iy, ix] = (ox - ix, oy - iy)
             if o["cls"] != "ball":
                 hgt[0, iy, ix] = np.log(ph)
@@ -100,7 +106,8 @@ def export(model, args, out_dir, val_focal=None):
     onnx_path = os.path.join(out_dir, "detector.onnx")
     torch.onnx.export(model, torch.zeros(1, 3, args.height, args.width), onnx_path, input_names=["image"],
                       output_names=["hm", "off", "hgt"], opset_version=17, dynamo=False)
-    meta = {"input": [args.height, args.width], "stride": STRIDE, "channels": ["player", "ball", "controlled"],
+    meta = {"input": [args.height, args.width], "stride": STRIDE, "channels": ["player", "ball", "controlled_marker"],
+            "marker_above": MARKER_ABOVE,
             "color": "bgr", "scale": 1 / 255.0, "data": args.data, "epochs": args.epochs, "val_focal": val_focal,
             "model_width": args.model_width}
     with open(onnx_path + ".json", "w") as f:

@@ -178,7 +178,7 @@ class CandidateGenerator:
         if np.linalg.norm(GOAL - origin) < cfg.shoot_max_dist and origin[0] > L / 2:
             out.append(self._shot(origin, st, ctx))
         out.append(self._dribble(origin, opp_pos, opp_vel, ctx))
-        out.append(self._hold(origin, ctx))
+        out.append(self._hold(origin, ctx, opp_pos, opp_vel))
         return out
 
     # ------------------------------------------------------------------------
@@ -306,8 +306,20 @@ class CandidateGenerator:
                         value_success=float(zone_value(q[k])[0]),
                         detail={"space": float(space[k]), "cost": float(turnover_cost(q[k])[0])}, features=f)
 
-    def _hold(self, origin, ctx) -> T.Action:
-        p = float(np.clip(1.0 - 0.28 * ctx["pressure"], 0.15, 0.97))
+    def _hold(self, origin, ctx, opp_pos=None, opp_vel=None) -> T.Action:
+        """Keeping the ball for ~1 s: safe only if no opponent can get there in time.
+        (The old static-pressure model made HOLD look safe far too often.)"""
+        pc = self.cfg.physics
+        if opp_pos is not None and len(opp_pos):
+            t_o = time_to_arrive = ph.time_to_reach(opp_pos, opp_vel, origin[None, :], pc)[:, 0]
+            # two closest arrivals: a second presser makes shielding much harder
+            t1 = float(np.sort(t_o)[0])
+            t2 = float(np.sort(t_o)[1]) if len(t_o) > 1 else 9.0
+            p = float(ph.sigmoid((t1 - 0.9) / 0.35) * 0.85 + 0.1 * ph.sigmoid((t2 - 1.2) / 0.35))
+            del time_to_arrive
+        else:
+            p = 0.95
+        p = float(np.clip(p, 0.1, 0.95))
         v = ctx["v_current"]
         score = p * v - (1 - p) * float(turnover_cost(origin)[0]) - self.cfg.hold_tempo_cost
         f = self._generic_features(T.HOLD, origin, origin, ctx, p, score, ctx["nearest"], 0.0, 0.0)
