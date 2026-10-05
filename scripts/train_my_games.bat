@@ -1,14 +1,9 @@
 @echo off
 rem Improve the assistant with YOUR OWN FC 27 recordings.
-rem Drag one or more recordings (mp4) onto this file, or run:
+rem Double-click this file and choose your recordings, or drag them onto it, or run:
 rem    scripts\train_my_games.bat D:\Videos\match1.mp4 D:\Videos\match2.mp4
 rem The last video by file name (e.g. 5_...) is kept aside to check that the new models are really better.
 cd /d "%~dp0.."
-if "%~1"=="" (
-  echo Drag one or more FC 27 recordings onto this file.
-  pause
-  exit /b 1
-)
 if not exist .venv\Scripts\activate.bat (
   echo Please run scripts\setup_windows.bat first.
   pause

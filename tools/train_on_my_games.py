@@ -80,6 +80,30 @@ def _split_single_labels(src: str, dst: str, frac: float):
                 shutil.move(q, os.path.join(dst, os.path.basename(q)))
 
 
+def pick_videos() -> list:
+    """No videos given (double-clicked): let the user choose them in a normal Windows file window."""
+    try:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        print("Choose your FC 27 recordings in the window that opened (Ctrl+click or Ctrl+A for several)...",
+              flush=True)
+        got = filedialog.askopenfilenames(parent=root, title="Choose your FC 27 recordings (select several with Ctrl)",
+                                          filetypes=[("Videos", "*.mp4 *.mkv *.mov *.avi"), ("All files", "*.*")])
+        root.destroy()
+        return list(got)
+    except Exception:
+        print("Type or paste the full path of a recording (empty line when done):", flush=True)
+        out = []
+        while True:
+            p = input("> ").strip().strip('"')
+            if not p:
+                return out
+            out.append(p)
+
+
 def radar_score(m: dict) -> float:
     from tools.radar_real import real_score
     return real_score(m)
@@ -87,7 +111,7 @@ def radar_score(m: dict) -> float:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("videos", nargs="+")
+    ap.add_argument("videos", nargs="*", help="recordings (none: a file picker opens)")
     ap.add_argument("--work", default="data/my_games")
     ap.add_argument("--radar-epochs", type=int, default=3)
     ap.add_argument("--det-epochs", type=int, default=15)
