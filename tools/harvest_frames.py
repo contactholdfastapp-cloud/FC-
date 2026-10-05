@@ -70,9 +70,9 @@ def group_of(name: str, groups: list) -> str:
 
 
 def process(job):
-    path, out, frame_every, radar_every, panel, margin, quality, groups = job
-    clip = os.path.splitext(os.path.basename(path))[0]
-    grp = group_of(path, groups)
+    path, out, frame_every, radar_every, panel, margin, quality, groups, name = job
+    clip = name or os.path.splitext(os.path.basename(path))[0]
+    grp = name or group_of(path, groups)
     cap = cv2.VideoCapture(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
     rows = []
@@ -119,13 +119,17 @@ def main():
     ap.add_argument("--margin", type=float, default=0.10, help="radar crop margin, fraction of the panel width")
     ap.add_argument("--quality", type=int, default=92)
     ap.add_argument("--groups", default="", help='"lo-hi:name,..." by the first number in the file name')
+    ap.add_argument("--names", nargs="*", default=[], help="clip/group name per video (same order as videos)")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2)))
     a = ap.parse_args()
     for d in ("frames", "radar"):
         os.makedirs(os.path.join(a.out, d), exist_ok=True)
     panel = RadarConfig().panel
     groups = parse_groups(a.groups)
-    jobs = [(p, a.out, a.frame_every, a.radar_every, panel, a.margin, a.quality, groups) for p in sorted(a.videos)]
+    if a.names and len(a.names) != len(a.videos):
+        raise SystemExit("--names needs one name per video")
+    pairs = sorted(zip(a.videos, a.names or [""] * len(a.videos)))
+    jobs = [(p, a.out, a.frame_every, a.radar_every, panel, a.margin, a.quality, groups, n) for p, n in pairs]
     rows = []
     with ProcessPoolExecutor(a.workers) as ex:
         for k, r in enumerate(ex.map(process, jobs)):

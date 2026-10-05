@@ -128,18 +128,8 @@ def main():
             print("new set of videos -> harvesting again", flush=True)
             shutil.rmtree(harvest)
     if not os.path.exists(idx):
-        links = os.path.join(work, "videos")
-        os.makedirs(links, exist_ok=True)
-        named = []
-        for v, n in zip(vids, names):              # group = cleaned file name
-            dst = os.path.join(links, n + os.path.splitext(v)[1].lower())
-            if not os.path.exists(dst):
-                try:
-                    os.link(v, dst)                # same drive: no copy
-                except OSError:
-                    shutil.copyfile(v, dst)
-            named.append(dst)
-        run(["tools/harvest_frames.py", *named, "--out", harvest])
+        # read the videos where they are (no copy: they may be on another, bigger drive)
+        run(["tools/harvest_frames.py", *vids, "--names", *names, "--out", harvest])
         if single:
             _split_single_harvest(harvest, names[0], held, a.held_fraction)
 
