@@ -14,7 +14,7 @@ What it does, all locally:
   4. a model is switched on only if it measured better on the same held-out
      footage (models/registry.json keeps every version)
 
-With 2+ recordings the last one is held out for the comparison; with a
+With 2+ recordings the last one (by file name) is held out for the comparison; with a
 single recording its last quarter is held out.  A full match (10+ minutes of
 gameplay, 2D radar on) works well.  With a CUDA GPU the training steps take
 minutes; on CPU expect an hour or more.
@@ -98,7 +98,8 @@ def main():
     ap.add_argument("--held-fraction", type=float, default=0.25, help="single recording: share held out (its end)")
     ap.add_argument("--dry-run", action="store_true", help="train and compare, but do not touch models/registry.json")
     a = ap.parse_args()
-    vids = [os.path.abspath(v) for v in a.videos]
+    # sorted by file name: Windows drag-and-drop order is random, so "the last one" = last by name
+    vids = sorted((os.path.abspath(v) for v in a.videos), key=lambda v: os.path.basename(v).lower())
     for v in vids:
         if not os.path.exists(v):
             raise SystemExit(f"video not found: {v}")
