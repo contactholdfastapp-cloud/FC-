@@ -31,10 +31,43 @@ XG_WEIGHT = 0.45   # share of the shot chance credited to merely *having* the ba
                    # holding the ball "double counts" the shot and shooting never wins
 
 
-def zone_value(p) -> np.ndarray:
+def _load_xt():
+    import json
+    import os
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "open_xt_12x8_v1.json")
+    try:
+        return np.array(json.load(open(path)), float)          # (8 rows across, 12 cols along)
+    except OSError:
+        return None
+
+
+# Expected Threat grid (Karun Singh, "Introducing Expected Threat", open 12x8 grid fitted on
+# real match event data): probability that possession at a zone leads to a goal within
+# the next few actions.  Real-data value surface instead of a hand-tuned one.
+XT = _load_xt()
+
+
+def xt(p) -> np.ndarray:
+    """Bilinear-interpolated xT at attack-aligned pitch points."""
     p = np.atleast_2d(np.asarray(p, dtype=np.float64))
-    x = np.clip(p[:, 0], 0, L) / L
-    return 0.01 + 0.06 * x ** 2 + XG_WEIGHT * xg(p)
+    if XT is None:
+        x = np.clip(p[:, 0], 0, L) / L
+        return 0.006 + 0.03 * x ** 3
+    ny, nx = XT.shape
+    gx = np.clip(p[:, 0] / L * nx - 0.5, 0, nx - 1)
+    gy = np.clip(p[:, 1] / W * ny - 0.5, 0, ny - 1)
+    x0, y0 = np.floor(gx).astype(int), np.floor(gy).astype(int)
+    x1, y1 = np.minimum(x0 + 1, nx - 1), np.minimum(y0 + 1, ny - 1)
+    fx, fy = gx - x0, gy - y0
+    return (XT[y0, x0] * (1 - fx) * (1 - fy) + XT[y0, x1] * fx * (1 - fy)
+            + XT[y1, x0] * (1 - fx) * fy + XT[y1, x1] * fx * fy)
+
+
+def zone_value(p) -> np.ndarray:
+    """Value of having the ball at p: real-data xT, never below a fraction of a direct shot
+    there (xT averages over contested possessions; inside the box a clean shot is the floor)."""
+    p = np.atleast_2d(np.asarray(p, dtype=np.float64))
+    return np.maximum(xt(p), XG_WEIGHT * xg(p))
 
 
 def turnover_cost(p) -> np.ndarray:

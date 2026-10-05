@@ -65,9 +65,18 @@ to fix each.
 
 ## Tactics and learning
 
-* Physics constants (pass speed/deceleration, player top speed, reaction time)
-  are generic football values, not fitted to FC 27. Fit them from your
-  decision datasets. The constants live in `PhysicsConfig`.
+* Physics constants (pass speed/deceleration, top speed 7.8 m/s, acceleration
+  5.5 m/s², reaction 0.3 s) are generic football values, not fitted to FC 27.
+  The constants live in `PhysicsConfig`.
+* The football exam (`tools/football_exam.py`, 17 situations) was written and
+  tuned against in the same session. Its robustness check (mirrored and
+  jittered positions, 94 %) guards against memorising, but it is not
+  independent ground truth. In the simulator's counterfactual benchmark the
+  new logic is level with the old one (0.0195 vs 0.0184 ± 0.005 goal-value per
+  decision). That simulator does not model FC through-ball runs.
+* The learned ranker (`ranker_v001`) was trained on the previous candidate
+  features. Keep `runtime.ranker = "heuristic"` (default) unless it is
+  retrained.
 * Learned models in this repo were trained on **simulator** data. They show
   the method works (the learned success model is far better calibrated than
   physics; the learned EV ranker beats the heuristic in counterfactual

@@ -41,6 +41,7 @@ NK = len(T.ATTACK_KINDS)
 class TacticsConfig:
     physics: ph.PhysicsConfig = field(default_factory=ph.PhysicsConfig)
     max_pass_dist: float = 50.0
+    max_lofted_dist: float = 62.0  # long diagonal switches are normal in FC
     min_pass_dist: float = 3.0
     lob_min_dist: float = 18.0
     shoot_max_dist: float = 32.0
@@ -135,6 +136,7 @@ class CandidateGenerator:
         if len(mates):
             d0 = np.linalg.norm(R_pos - origin, axis=1)
             ok = (d0 >= cfg.min_pass_dist) & (d0 <= cfg.max_pass_dist)
+            ok_lob = (d0 >= cfg.min_pass_dist) & (d0 <= cfg.max_lofted_dist)
             # PASS to feet: aim at where the receiver will be when the ball arrives
             tgt = R_pos.copy()
             for _ in range(2):
@@ -150,7 +152,7 @@ class CandidateGenerator:
             # LOB / CROSS over the lines
             tf = ph.lob_time(d0, pc)
             tl = fut.at(tf, R_pos, R_vel)
-            for i in np.where(ok & (d0 > cfg.lob_min_dist))[0]:
+            for i in np.where(ok_lob & (d0 > cfg.lob_min_dist))[0]:
                 kind = T.CROSS if self._is_cross(origin, tl[i]) else T.LOB
                 add(kind, i, tl[i], True, 0.0, tf[i])
             # THROUGH balls into the receiver's run: target = predicted receiving point
@@ -165,10 +167,17 @@ class CandidateGenerator:
                     d = float(np.linalg.norm(q - origin))
                     if d < 6 or d > cfg.max_pass_dist or q[0] < R_pos[i, 0] + 2:
                         continue
+                    if q[0] > L - 16.5 and abs(q[1] - W / 2) < 20 and tau > 1.0:
+                        continue                      # through balls into a crowded box: no (pro guides)
                     v0t = (d + 0.5 * pc.pass_decel * tau * tau) / tau
-                    if v0t > pc.v_max or v0t - pc.pass_decel * tau < 1.5:
-                        continue
-                    add(T.THROUGH, i, q, False, v0t, 0.0)
+                    if v0t <= pc.v_max and v0t - pc.pass_decel * tau >= 1.5:
+                        add(T.THROUGH, i, q, False, v0t, 0.0)
+                    # lofted through ball over the line (L1 + triangle): lands in the run
+                    if d >= 15:
+                        ftl = float(ph.lob_time(d, pc))
+                        ql = np.clip(R_pos[i] + u[i] * vrun[i] * ftl * 0.92, [1, 1], [L - 1, W - 1])
+                        if ql[0] > R_pos[i, 0] + 2 and np.linalg.norm(ql - origin) <= cfg.max_lofted_dist:
+                            add(T.THROUGH, i, ql, True, 0.0, ftl)
 
         out: list[T.Action] = []
         if specs_kind:
@@ -219,6 +228,17 @@ class CandidateGenerator:
         v_t = zone_value(tg)
         xg_t = xg(tg)
         v_succ = v_t * (1.0 + 0.25 * np.clip((space - 3.0) / 5.0, -1.0, 1.0))
+        # receiving *behind* the defence is worth far more than the zone average: each outfield
+        # defender still goal-side of the receiving point can recover; none left = 1v1 with the keeper
+        if len(opp_pos):
+            outfield = opp_pos[opp_pos[:, 0] < L - 3] if (opp_pos[:, 0] < L - 3).any() else opp_pos
+            goal_side = ((outfield[None, :, 0] > tg[:, None, 0] + 1.0)
+                         & (np.abs(outfield[None, :, 1] - tg[:, None, 1]) < 25)).sum(axis=1)
+            fwd = np.clip((tg[:, 0] - origin[0]) / 15.0, 0.0, 1.0)
+            v_succ = v_succ * (1.0 + 0.8 * fwd * np.exp(-0.8 * goal_side))
+            one_v_one = (goal_side == 0) & (tg[:, 0] > L / 2)
+            v_succ = np.where(one_v_one, np.maximum(v_succ, 0.7 * xg(np.c_[np.minimum(tg[:, 0] + 12, L - 11), tg[:, 1]])),
+                              v_succ)
         is_cross = np.array([k == T.CROSS for k in kinds])
         v_succ = np.where(is_cross, np.maximum(v_succ, 0.6 * xg_t), v_succ)
         cost_pt = np.where((ev["p_intercept"] > 0.3)[:, None], ev["intercept_point"], tg)
@@ -303,7 +323,12 @@ class CandidateGenerator:
             margin, space = np.full(n, 3.0), np.full(n, 30.0)
             congestion, ahead = np.zeros(n), np.zeros(n)
         p = ph.sigmoid((margin + 0.2) / 0.35) * 0.95
-        score = p * zone_value(q) - (1 - p) * turnover_cost(q)
+        # a crowd stays on you after the dribble: each extra opponent nearby makes it worse,
+        # and the end point is only worth something if you are not trapped there
+        crowd = ((dq < 8.0).sum(axis=1).astype(float) if len(opp_pos) else np.zeros(n))
+        p = p * np.exp(-0.15 * np.maximum(crowd - 1.0, 0.0))
+        v_end = zone_value(q) * np.exp(-0.2 * crowd)
+        score = p * v_end - (1 - p) * turnover_cost(q)
         k = int(np.argmax(score))
         f = self._generic_features(T.DRIBBLE, q[k], origin, ctx, float(p[k]), float(score[k]),
                                    float(space[k]), float(congestion[k]), float(ahead[k]))

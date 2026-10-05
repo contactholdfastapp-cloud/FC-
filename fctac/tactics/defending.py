@@ -50,7 +50,8 @@ def defensive_candidates(st: T.GameState, pc: ph.PhysicsConfig = ph.PhysicsConfi
     danger = float(zone_value(np.array([L - carrier.pos[0], W - carrier.pos[1]]))[0])
     urgency = float(np.clip(0.4 + 4.0 * danger, 0.4, 1.0))
 
-    if i_me is None or (i_best != i_me and cost[i_me] - cost[i_best] > 0.6):
+    # FC 27: AI teammates win the ball far less on their own -> switch to the right man earlier
+    if i_me is None or (i_best != i_me and cost[i_me] - cost[i_best] > 0.4):
         b = ours[i_best]
         gap = 1.0 if i_me is None else float(cost[i_me] - cost[i_best])
         out.append(T.Action(kind=T.SWITCH, target_id=b.id, target_label=b.label,

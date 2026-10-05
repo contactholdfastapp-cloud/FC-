@@ -26,7 +26,7 @@ the reason for each: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 | Calibration on real FC 27 | FC 27's broadcast camera was measured on real footage (dolly camera); radar↔view registration error **0.48 m** median on real frames |
 | Colour detector, tracker, game state | working on synthetic and real FC 27 footage |
 | Learned detector (ONNX) v004 | trained on 869 auto-labelled real FC 27 frames + synthetic; **default in the FC 27 config**; on the held-out match it makes calibration available in 97 % of live play (colour detector: 57 %) |
-| Tactics: candidates, pass/through-ball physics, shooting, defending, stabiliser | working (heuristic baseline) |
+| Tactics: candidates, pass/through-ball physics, shooting, defending, stabiliser | **football exam 17/17** (`python tools/football_exam.py`, was 11/16), 94 % stable under mirrored/nudged positions; real-data Expected Threat values, pitch-control passing with realistic acceleration, lofted through balls, FC 27 changes |
 | Decision auto-labelling, learned success/ranking model, learned movement predictor | pipelines working and benchmarked on simulator data; must be retrained on your recordings |
 | Live capture (WGC/DXGI) + Win32 transparent overlay | written against the Windows APIs; **not yet run on Windows** (the development machine is a Linux container) — first thing to test on your PC |
 

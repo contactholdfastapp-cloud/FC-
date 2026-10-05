@@ -110,6 +110,7 @@ class TacticsEngine:
         if q <= 0:
             self.stab.reset_soft(None)
             return [], T.Recommendation(status=T.STATUS_ANALYSING, reason=why)
+        self._auto_switch_to_carrier(st)
         phase = self.phase(st)
         if phase == "attack":
             cands = self.gen.attacking(st)
@@ -132,6 +133,21 @@ class TacticsEngine:
         conf = self._confidence(ranked, phase) * q
         rec = self.stab.update(st.t, ranked, conf, (phase, st.controlled_id))
         return ranked, rec
+
+    def _auto_switch_to_carrier(self, st: T.GameState):
+        """FC gives you the ball carrier when your team has the ball (auto switching): advise
+        the player on the ball, not the last highlighted one (radar highlight lags a pass)."""
+        b = st.ball
+        if b is None or b.owner_team != T.TEAM_US or b.owner_id is None or b.owner_id == st.controlled_id:
+            return
+        owner = st.player(b.owner_id)
+        if owner is None or owner.team != T.TEAM_US or owner.role == "GK":
+            return
+        if np.linalg.norm(b.pos - owner.pos) < self.cfg.tactics.owner_radius \
+                and np.linalg.norm(b.vel - owner.vel) < self.cfg.loose_ball_speed:
+            for p in st.players:
+                p.controlled = p.id == owner.id
+            st.controlled_id = owner.id
 
     def _confidence(self, ranked, ph) -> float:
         s1 = ranked[0].score

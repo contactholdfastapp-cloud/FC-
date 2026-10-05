@@ -16,7 +16,8 @@ import numpy as np
 @dataclass
 class PhysicsConfig:
     vmax: float = 7.8            # player top speed (m/s)
-    reaction: float = 0.25       # s before a player changes course
+    accel: float = 5.5           # m/s^2: nobody goes from standing to sprint instantly
+    reaction: float = 0.3        # s before a player changes course
     sigma_t: float = 0.30        # s, uncertainty of time comparisons
     control_r: float = 1.0       # m, reach radius
     pass_decel: float = 2.8      # m/s^2 rolling deceleration
@@ -26,6 +27,7 @@ class PhysicsConfig:
     v_max: float = 26.0
     lob_speed: float = 25.0      # flight time = 1 + d / lob_speed
     lofted_accuracy: float = 0.85
+    pass_error_per_m: float = 0.002  # execution error (FC 27: less pass assistance), per metre
     path_samples: int = 14
 
 
@@ -33,15 +35,29 @@ def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-np.clip(x, -50, 50)))
 
 
+def run_time(d, v0, cfg: PhysicsConfig):
+    """Time to cover d metres starting at speed v0 (towards the target), accelerating to vmax."""
+    d = np.asarray(d, float)
+    v0 = np.clip(np.asarray(v0, float), 0.0, cfg.vmax)
+    a, vm = cfg.accel, cfg.vmax
+    tv = (vm - v0) / a
+    dv = v0 * tv + 0.5 * a * tv * tv
+    t_acc = (-v0 + np.sqrt(v0 * v0 + 2 * a * d)) / a
+    return np.where(d <= dv, t_acc, tv + (d - dv) / vm)
+
+
 def time_to_reach(pos: np.ndarray, vel: np.ndarray, targets: np.ndarray, cfg: PhysicsConfig) -> np.ndarray:
-    """(N,2) players, (M,2) targets -> (N,M) seconds."""
+    """(N,2) players, (M,2) targets -> (N,M) seconds (reaction, then accelerate; momentum counts)."""
     pos = np.atleast_2d(pos)
     vel = np.atleast_2d(vel)
     targets = np.atleast_2d(targets)
     p_react = pos + vel * cfg.reaction
-    d = np.linalg.norm(targets[None, :, :] - p_react[:, None, :], axis=2)
-    d = np.maximum(d - cfg.control_r, 0.0)
-    return cfg.reaction + d / cfg.vmax
+    diff = targets[None, :, :] - p_react[:, None, :]
+    dist = np.linalg.norm(diff, axis=2)
+    u = diff / np.maximum(dist, 1e-6)[:, :, None]
+    v0 = np.sum(u * vel[:, None, :], axis=2)                      # speed already heading there
+    d = np.maximum(dist - cfg.control_r, 0.0)
+    return cfg.reaction + run_time(d, v0, cfg)
 
 
 def ground_v0(dist, arrive: float, cfg: PhysicsConfig):
@@ -88,14 +104,29 @@ def evaluate_passes(origin: np.ndarray, targets: np.ndarray, lofted: np.ndarray,
     finite = np.isfinite(t_end)
     t_safe = np.where(np.isfinite(t), t, 1e3)
 
+    # the receiver claims the ball at the first path point he reaches no later than the ball;
+    # beyond that point nobody can intercept (pitch-control "first to the ball" logic)
+    pr = recv_pos + recv_vel * cfg.reaction
+    rdiff = pts - pr[:, None, :]
+    rdist = np.linalg.norm(rdiff, axis=2)
+    ru = rdiff / np.maximum(rdist, 1e-6)[:, :, None]
+    rv0 = np.sum(ru * recv_vel[:, None, :], axis=2)
+    t_rk = cfg.reaction + run_time(np.maximum(rdist - cfg.control_r, 0.0), rv0, cfg)       # (M,S)
+    claim = (t_rk <= t_safe + 0.1) & (frac > 0.3)
+    first = np.where(claim.any(axis=1), np.argmax(claim, axis=1), S - 1)
+    before_claim = np.arange(S)[None, :] <= first[:, None]
     N = len(opp_pos)
     if N:
         p_react = opp_pos + opp_vel * cfg.reaction
-        dist = np.linalg.norm(pts[:, :, None, :] - p_react[None, None, :, :], axis=3)   # (M,S,N)
-        T = cfg.reaction + np.maximum(dist - cfg.control_r, 0.0) / cfg.vmax
+        diff = pts[:, :, None, :] - p_react[None, None, :, :]
+        dist = np.linalg.norm(diff, axis=3)                                       # (M,S,N)
+        ou = diff / np.maximum(dist, 1e-6)[..., None]
+        ov0 = np.sum(ou * opp_vel[None, None, :, :], axis=3)
+        T = cfg.reaction + run_time(np.maximum(dist - cfg.control_r, 0.0), ov0, cfg)
         margin = t_safe[:, :, None] - T
         ctrl = np.clip(1.3 - v / 25.0, 0.3, 1.0)[:, :, None]
-        p = sigmoid(margin / cfg.sigma_t) * ctrl * mask[:, :, None]
+        valid = (mask & before_claim & (frac < 0.97))[:, :, None]
+        p = sigmoid(margin / cfg.sigma_t) * ctrl * valid
         pj = p.max(axis=1)                                                      # (M,N)
         p_int = 1.0 - np.prod(1.0 - pj, axis=1)
         jbest = np.argmax(pj, axis=1)
@@ -110,14 +141,20 @@ def evaluate_passes(origin: np.ndarray, targets: np.ndarray, lofted: np.ndarray,
         lane = np.full(M, 99.0)
         t_o = np.full(M, 99.0)
 
-    pr = recv_pos + recv_vel * cfg.reaction
-    t_r = cfg.reaction + np.maximum(np.linalg.norm(targets - pr, axis=1) - cfg.control_r, 0.0) / cfg.vmax
+    t_r = t_rk[:, -1]
     t_end_s = np.where(finite, t_end, 1e3)
     recv_margin = t_end_s + 0.25 - t_r
     p_reach = sigmoid(recv_margin / cfg.sigma_t)
+    # contest at the receiving point: if both are there before the ball it is a duel won by
+    # whoever got there first (body position); otherwise first to the ball after it arrives
     opp_margin = t_o - np.maximum(t_end_s, t_r)
-    p_contest = sigmoid((opp_margin + 0.15) / cfg.sigma_t)
-    p_receive = p_reach * p_contest * np.where(lofted, cfg.lofted_accuracy, 1.0)
+    p_race = sigmoid((opp_margin + 0.15) / cfg.sigma_t)
+    both_early = sigmoid((t_end_s - np.maximum(t_r, t_o)) / 0.3)
+    p_duel = 0.25 + 0.5 * sigmoid((t_o - t_r) / 0.5)
+    p_contest = both_early * p_duel + (1.0 - both_early) * p_race
+    acc = np.where(lofted, np.clip(cfg.lofted_accuracy + 0.05 - 0.002 * d, 0.6, 0.95),
+                   np.clip(1.0 - cfg.pass_error_per_m * d, 0.7, 1.0))
+    p_receive = p_reach * p_contest * acc
     p_success = np.where(finite, (1.0 - p_int) * p_receive, 0.0)
     return {"p_success": p_success, "p_intercept": np.where(finite, p_int, 1.0), "p_receive": p_receive,
             "t_arrive": t_end, "v_arrive": v_end, "intercept_point": ipt, "lane": lane,
