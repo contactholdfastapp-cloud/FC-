@@ -1,4 +1,6 @@
 @echo off
+REM Works when double-clicked: always run from the project folder
+cd /d "%~dp0.."
 REM One-time setup on the gaming PC (run from the repository root).
 python -m venv .venv || goto :err
 call .venv\Scripts\activate.bat
@@ -12,7 +14,9 @@ python tools\inspect_machine.py --dxdiag
 python -m pytest -q
 echo.
 echo Setup done. Next: scripts\replay.bat path\to\recording.mp4
+pause
 goto :eof
 :err
 echo Setup failed - see the messages above.
 exit /b 1
+pause
