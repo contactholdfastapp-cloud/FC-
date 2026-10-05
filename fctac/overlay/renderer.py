@@ -44,7 +44,7 @@ class OverlayConfig:
     scale: float = 1.0               # UI scale (1.0 tuned for 720p; scales with height automatically)
     min_draw_calib: float = 0.35     # below this the arrow is not drawn (label only)
     fade_in_s: float = 0.15          # a new recommendation fades in (starts at 55 % opacity)
-    hold_s: float = 0.5              # keep the last advice up through short gaps (no blinking)
+    hold_s: float = 0.8              # keep the last advice up through short gaps (no blinking)
 
 
 def _pt(p) -> tuple[int, int]:
