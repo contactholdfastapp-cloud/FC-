@@ -111,6 +111,15 @@ class LineTracker:
         return m
 
     def update(self, frame: np.ndarray, H_img2pitch: np.ndarray) -> tuple[Optional[np.ndarray], float]:
+        """Never raises: a degenerate homography (real footage: cuts, replays) -> (None, 0)."""
+        try:
+            return self._update(frame, H_img2pitch)
+        except (np.linalg.LinAlgError, cv2.error):
+            self.conf = 0.0
+            self.prev_gray = None
+            return None, 0.0
+
+    def _update(self, frame: np.ndarray, H_img2pitch: np.ndarray) -> tuple[Optional[np.ndarray], float]:
         h, w = frame.shape[:2]
         se = self.ecc_w / w
         tiny = cv2.resize(frame, (self.ecc_w, int(round(h * se))), interpolation=cv2.INTER_AREA)
@@ -148,5 +157,12 @@ class LineTracker:
         else:
             # motion-only propagation drifts: confidence decays
             self.conf *= 0.97 if motion_ok else 0.8
-        H = np.linalg.inv(H_p2i)
+        try:
+            H = np.linalg.inv(H_p2i)
+        except np.linalg.LinAlgError:
+            self.conf = 0.0
+            return None, 0.0
+        if not np.all(np.isfinite(H)) or abs(H[2, 2]) < 1e-12:
+            self.conf = 0.0
+            return None, 0.0
         return H / H[2, 2], self.conf

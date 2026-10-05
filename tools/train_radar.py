@@ -106,6 +106,7 @@ def main():
                 torch.save(net.state_dict(), best_path)
         net.load_state_dict(torch.load(best_path, map_location="cpu"))
     onnx_path = os.path.join(a.out, "radar.onnx")
+    torch.save(net.state_dict(), onnx_path + ".pt")        # weights travel with the model (fine-tuning)
     meta = {"input": [192, 320], "stride": 2, "channels": ["triangle", "circle", "ball", "highlight"],
             "thr": 0.35, "train_synth": a.synth, "train_real": a.real}
     export_onnx(net, onnx_path, meta)
@@ -122,7 +123,7 @@ def main():
         metrics.update({f"real_{k}": v for k, v in rep.get("real_val", {}).items()})
         metrics["radar_score"] = round(score(rep["real_val"]) if real_val else score(m), 4)
         e = Registry().register("radar", onnx_path, metrics, primary="radar_score",
-                                data=",".join(a.synth + a.real))
+                                data=",".join(a.synth + a.real), extra_files=(".json", ".pt"))
         print("registered", e["version"], "deployed" if e["deployed"] else "(not better: kept current)")
 
 

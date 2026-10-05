@@ -231,9 +231,13 @@ def main():
     from fctac.training.registry import Registry
     m = evaluate_onnx_on_labels(onnx_path, splits["val"])
     print("val metrics", json.dumps(m))
+    import shutil
+    best_pt = os.path.join(os.path.dirname(onnx_path), "best.pt")
+    if os.path.exists(best_pt):
+        shutil.copyfile(best_pt, onnx_path + ".pt")       # weights travel with the model (fine-tuning)
     reg = Registry()
     entry = reg.register("detector", onnx_path, m, primary="det_score",
-                         data=a.data or ",".join(a.train_dirs + a.extra_train))
+                         data=a.data or ",".join(a.train_dirs + a.extra_train), extra_files=(".json", ".pt"))
     print("registered", entry["version"], "deployed" if entry["deployed"] else "(not deployed: not better than current)")
 
 

@@ -110,6 +110,15 @@ class VisionAnalyzer:
         self._line_mode = False
         self.n = 0
         self.last_dets: list = []
+        self._radar_gen = getattr(self.radar, "generation", 0)
+
+    def _team_assignment_changed(self):
+        """The radar's "your team" flipped (auto decision or F7): team-dependent state is stale."""
+        c = self.cfg
+        self.tracker = Tracker(c.tracker)
+        self.state = StateBuilder(c.state)
+        self.engine = TacticsEngine(c.engine, ranker=self.ranker, predictor=self.predictor)
+        self.kits = TeamPrototypes(rate=0.05)
 
     def reset(self):
         self._build()
@@ -152,6 +161,10 @@ class VisionAnalyzer:
             with tm.stage("radar"):
                 b = self.tracker.ball
                 radar = self.radar.read(frame, b.kf.pos if b.kf is not None else None)
+            gen = getattr(self.radar, "generation", 0)
+            if gen != self._radar_gen:
+                self._radar_gen = gen
+                self._team_assignment_changed()
         # main-view detection may run at a lower rate; skipped frames use the radar
         # only (never re-feed stale detections -- the camera has moved since)
         dets: list = []
@@ -180,11 +193,11 @@ class VisionAnalyzer:
             if not detected and not self._line_mode:
                 H, cconf = self.calib.H, self.calib.conf
             elif radar is not None and radar.ok and detected:
-                H, cconf = self.calib.update(players, radar.points, radar.teams, w, h)
+                H, cconf = self.calib.update(players, radar.points, radar.teams, w, h, radar.ball)
                 if cconf >= 0.5:
                     # detections registered to radar dots inherit the radar's team label
                     for di, ri in self.calib.last_matches:
-                        if di < len(players):
+                        if di < len(players) and ri < len(radar.teams):
                             players[di].team, players[di].team_conf = int(radar.teams[ri]), 1.0
                 self._learn_kits(players, radar)
             else:
@@ -265,7 +278,7 @@ class VisionAnalyzer:
             return
         feats, teams = [], []
         for di, ri in self.calib.last_matches:
-            if di < len(players) and players[di].feature is not None:
+            if di < len(players) and ri < len(radar.teams) and players[di].feature is not None:
                 feats.append(players[di].feature)
                 teams.append(int(radar.teams[ri]))
         if len(feats) < 4:

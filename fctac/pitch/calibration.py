@@ -36,6 +36,13 @@ class CalibConfig:
     hold_conf_decay: float = 0.93    # confidence decay per frame while coasting
     line_tracking: bool = True       # keep the homography alive from pitch lines when radar registration fails
     offpitch_margin_m: float = 2.0   # detections projected further outside the pitch are dropped
+    # init search camera family: "pan" = fixed position that pans (synthetic renderer), "dolly" = camera
+    # that slides along the touchline following the ball, looking straight across (FC 27 broadcast cam,
+    # fitted on real footage: ~50 m back, ~27 m up, tilt ~0.34 rad, f ~1.65 x width), "both"
+    init_mode: str = "both"
+    dolly_back: tuple = ((-45.0, 25.0), (-50.0, 27.5), (-56.0, 30.5))   # (y, z) camera distance / height
+    init_every: int = 3              # while lost, run the (costly) init search on every Nth update
+    init_accept: float = 0.035       # max init-search score (normalised point distance) to accept
 
 
 class RadarViewCalibrator:
@@ -46,6 +53,7 @@ class RadarViewCalibrator:
         self.fails = 0
         self.last_matches: list = []
         self.last_rmse = 0.0
+        self._init_tries = 0
 
     def set_manual(self, H_img2pitch: np.ndarray, conf: float = 0.9):
         self.H = H_img2pitch / H_img2pitch[2, 2]
@@ -58,7 +66,8 @@ class RadarViewCalibrator:
         self.fails = 0
 
     # ------------------------------------------------------------------------
-    def update(self, dets: list, radar_pts: np.ndarray, radar_teams: np.ndarray, width: int, height: int):
+    def update(self, dets: list, radar_pts: np.ndarray, radar_teams: np.ndarray, width: int, height: int,
+               ball: Optional[np.ndarray] = None):
         players = [d for d in dets if d.cls == T.CLS_PLAYER and d.team != T.TEAM_REF]
         if len(players) < self.cfg.min_matches or len(radar_pts) < self.cfg.min_matches:
             return self._coast()
@@ -67,7 +76,10 @@ class RadarViewCalibrator:
         H = self.H
         gate = self.cfg.gate_m
         if H is None:
-            H = self._init_search(img, radar_pts, width, height)
+            self._init_tries += 1
+            if (self._init_tries - 1) % max(1, self.cfg.init_every):
+                return self._coast()
+            H = self._init_search(img, radar_pts, width, height, ball)
             if H is None:
                 return self._coast()
             gate = self.cfg.gate_init_m
@@ -96,12 +108,14 @@ class RadarViewCalibrator:
         H, n, rmse, matches = best
         self.H = H
         self.fails = 0
+        self._init_tries = 0
         self.last_matches = matches
         self.last_rmse = rmse
         self.conf = float(np.clip((n - 4) / 8.0, 0, 1) * np.exp(-rmse / 1.5))
         return self.H, self.conf
 
     def _coast(self):
+        self.last_matches = []          # matches index this frame's radar/detections: stale when coasting
         self.fails += 1
         self.conf *= self.cfg.hold_conf_decay
         if self.fails > self.cfg.lost_after:
@@ -121,16 +135,18 @@ class RadarViewCalibrator:
         area = 0.5 * cross2(q[1] - q[0], q[3] - q[0]) + 0.5 * cross2(q[3] - q[2], q[1] - q[2])
         return abs(area) > 50
 
-    def _grid_scores(self, fk, tl, yw, img, radar_pts, width, height):
-        cx, cy, cz = self.cfg.cam_pos
+    def _grid_scores(self, fk, tl, yw, img, radar_pts, width, height, pos=None):
+        """pos: (N,3) camera positions per hypothesis (default: cfg.cam_pos for all)."""
+        if pos is None:
+            pos = np.broadcast_to(np.array(self.cfg.cam_pos, float), (len(fk), 3))
         f = fk * width
         cyw, syw, ct, st = np.cos(yw), np.sin(yw), np.cos(tl), np.sin(tl)
         fwd = np.stack([syw * ct, cyw * ct, -st], 1)
         right = np.stack([cyw, -syw, np.zeros_like(yw)], 1)
         down = np.cross(fwd, right)
         R = np.stack([right, down, fwd], 1)                                  # (N,3,3)
-        P = np.c_[radar_pts, np.zeros(len(radar_pts))] - np.array([cx, cy, cz])
-        Xc = np.einsum("nij,pj->npi", R, P)                                   # (N,P,3)
+        P = np.c_[radar_pts, np.zeros(len(radar_pts))][None, :, :] - pos[:, None, :]   # (N,P,3)
+        Xc = np.einsum("nij,npj->npi", R, P)                                  # (N,P,3)
         z = Xc[..., 2]
         zs = np.where(np.abs(z) < 1e-6, 1e-6, z)
         u = (f[:, None] * Xc[..., 0] / zs + width / 2) / width
@@ -144,22 +160,63 @@ class RadarViewCalibrator:
         s2 = dp.sum(1) / np.maximum(vis.sum(1), 1)
         return np.where(vis.sum(1) >= 4, s1 + 0.5 * s2, np.inf)
 
-    def _init_search(self, img: np.ndarray, radar_pts: np.ndarray, width: int, height: int) -> Optional[np.ndarray]:
-        """Coarse-to-fine grid search over broadcast-camera yaw/tilt/zoom (vectorised)."""
+    def _search(self, fk, tl, yw, pos, img, radar_pts, width, height):
+        sc = self._grid_scores(fk, tl, yw, img, radar_pts, width, height, pos)
+        k = int(np.argmin(sc))
+        return (float(sc[k]), float(fk[k]), float(tl[k]), float(yw[k]), pos[k].copy()) if np.isfinite(sc[k]) else None
+
+    def _pan_coarse(self, img, radar_pts, width, height):
         fk, tl, yw = np.meshgrid(np.array([1.0, 1.25, 1.5, 1.8, 2.2, 2.7]), np.linspace(0.14, 0.50, 10),
                                  np.linspace(-0.75, 0.75, 31), indexing="ij")
         fk, tl, yw = fk.ravel(), tl.ravel(), yw.ravel()
-        sc = self._grid_scores(fk, tl, yw, img, radar_pts, width, height)
-        k = int(np.argmin(sc))
-        if not np.isfinite(sc[k]):
+        pos = np.broadcast_to(np.array(self.cfg.cam_pos, float), (len(fk), 3))
+        return self._search(fk, tl, yw, pos, img, radar_pts, width, height)
+
+    def _dolly_coarse(self, img, radar_pts, width, height, ball):
+        # the camera trails the ball by a few metres; the score is sharp in x -> 2 m steps
+        if ball is not None:
+            xs = np.clip(float(ball[0]) + np.arange(-12.0, 9.0, 2.0), -5.0, 110.0)
+        else:
+            xs = np.arange(-5.0, 111.0, 2.5)
+        fks = np.array([1.45, 1.64, 1.85])
+        tls = np.array([0.31, 0.343, 0.375])
+        X, B, F, Tl = np.meshgrid(xs, np.arange(len(self.cfg.dolly_back)), fks, tls, indexing="ij")
+        X, B, F, Tl = X.ravel(), B.ravel(), F.ravel(), Tl.ravel()
+        back = np.array(self.cfg.dolly_back, float)
+        pos = np.c_[X, back[B, 0], back[B, 1]]
+        return self._search(F, Tl, np.zeros_like(F), pos, img, radar_pts, width, height)
+
+    def _init_search(self, img: np.ndarray, radar_pts: np.ndarray, width: int, height: int,
+                     ball: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+        """Coarse-to-fine grid search over broadcast cameras (vectorised): a panning camera at a
+        fixed position and/or a dolly camera sliding along the touchline (see CalibConfig.init_mode)."""
+        cands = []
+        if self.cfg.init_mode in ("pan", "both"):
+            r = self._pan_coarse(img, radar_pts, width, height)
+            if r:
+                cands.append(("pan", r))
+        if self.cfg.init_mode in ("dolly", "both"):
+            r = self._dolly_coarse(img, radar_pts, width, height, ball)
+            if r:
+                cands.append(("dolly", r))
+        if not cands:
             return None
-        f2, t2, y2 = np.meshgrid(fk[k] * np.linspace(0.85, 1.15, 9), tl[k] + np.linspace(-0.03, 0.03, 5),
-                                 yw[k] + np.linspace(-0.04, 0.04, 5), indexing="ij")
-        f2, t2, y2 = f2.ravel(), t2.ravel(), y2.ravel()
-        sc2 = self._grid_scores(f2, t2, y2, img, radar_pts, width, height)
-        j = int(np.argmin(sc2))
-        if not np.isfinite(sc2[j]) or sc2[j] > 0.03:
+        kind, (sc, fk, tl, yw, p) = min(cands, key=lambda c: c[1][0])
+        # refine around the best hypothesis
+        if kind == "pan":
+            f2, t2, y2 = np.meshgrid(fk * np.linspace(0.85, 1.15, 9), tl + np.linspace(-0.03, 0.03, 5),
+                                     yw + np.linspace(-0.04, 0.04, 5), indexing="ij")
+            pos2 = np.broadcast_to(p, (f2.size, 3))
+        else:
+            dx, f2, t2, y2 = np.meshgrid(np.arange(-3.0, 3.5, 1.0), fk * np.array([0.94, 1.0, 1.06]),
+                                         tl + np.array([-0.015, 0.0, 0.015]), np.array([-0.04, 0.0, 0.04]),
+                                         indexing="ij")
+            pos2 = np.c_[p[0] + dx.ravel(), np.full(dx.size, p[1]), np.full(dx.size, p[2])]
+        r = self._search(f2.ravel(), t2.ravel(), y2.ravel(), np.ascontiguousarray(pos2), img, radar_pts, width, height)
+        # real footage is noisier than the renderer (missed/merged players): 0.035; the
+        # Hungarian + RANSAC fit that follows still has to find >= min_matches inliers
+        if r is None or r[0] > self.cfg.init_accept:
             return None
-        cx, cy, cz = self.cfg.cam_pos
-        cam = CameraParams(cx, cy, cz, float(y2[j]), float(t2[j]), float(f2[j] * width), width, height)
+        sc, fk, tl, yw, p = r
+        cam = CameraParams(float(p[0]), float(p[1]), float(p[2]), yw, tl, fk * width, width, height)
         return cam.H_img2pitch()

@@ -29,6 +29,8 @@ class DetectorConfig:
     indicator_hue_tol: int = 8
     hud_masks: list = field(default_factory=lambda: [(0.415, 0.795, 0.585, 0.985), (0.0, 0.0, 0.3, 0.12)])
     ball_full_res: bool = True              # refine ball at full resolution around prior
+    ball_global: bool = True                # full-frame full-res ball search when there is no prior
+                                            # (off for FC 27: the radar gives the ball; saves ~20-40 ms)
     resize: str = "area"                    # area (default: keeps the ball at 1440p) | linear (~4 ms faster, loses ball recall)
 
 
@@ -179,6 +181,8 @@ class ColorDetector:
 
     def _ball(self, frame, small, white, pitch, fg, s, prior, dets=()) -> Optional[T.Detection]:
         cands = []
+        if prior is None and self.cfg.ball_full_res and not self.cfg.ball_global:
+            return None
         if prior is None and self.cfg.ball_full_res:
             # (re-)acquisition: at working resolution thin line fragments look like a
             # ball; at full resolution they are clearly elongated

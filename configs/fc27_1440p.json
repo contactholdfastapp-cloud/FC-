@@ -4,8 +4,9 @@
  "radar": {"enabled": true, "mode": "fc27", "fc27_model": "registry", "us_shape": "auto",
            "panel": [0.4234, 0.8009, 0.5750, 0.9491],
            "rect": [0.415, 0.795, 0.585, 0.985], "pitch_rect": [0.0, 0.0, 1.0, 1.0]},
- "detector": {"work_width": 640,
+ "detector": {"work_width": 640, "ball_global": false,
               "hud_masks": [[0.415, 0.795, 0.585, 0.985], [0.0, 0.0, 0.3, 0.12], [0.04, 0.88, 0.24, 0.98], [0.76, 0.88, 0.96, 0.98]]},
+ "calib": {"init_mode": "dolly"},
  "state": {"attack_sign": 0},
  "overlay": {"label_anchor": "player", "show_confidence": false, "show_debug": false, "show_secondary": false}
 }

@@ -1,3 +1,4 @@
+import os
 import json
 import threading
 import time
@@ -74,6 +75,16 @@ def test_registry_never_deploys_worse(tmp_path):
     l1 = reg.register("predictor", str(art), {"ADE": 1.0}, primary="ADE", higher_is_better=False)["deployed"]
     l2 = reg.register("predictor", str(art), {"ADE": 1.2}, primary="ADE", higher_is_better=False)["deployed"]
     assert l1 and not l2
+    # same-data comparison done by the caller overrides stored metrics from other data
+    (tmp_path / "m.onnx.pt").write_bytes(b"w")
+    r1 = reg.register("radar", str(art), {"radar_score": 0.9}, primary="radar_score", extra_files=(".json", ".pt"))
+    d1 = r1["deployed"]
+    r2 = reg.register("radar", str(art), {"radar_score": 0.5}, primary="radar_score", better=True)
+    d2 = r2["deployed"]
+    r3 = reg.register("radar", str(art), {"radar_score": 0.99}, primary="radar_score", better=False)
+    assert d1 and d2 and not r3["deployed"] and not r1["deployed"]
+    assert reg.deployed("radar")["version"] == r2["version"]
+    assert os.path.exists(r1["path"] + ".pt")
 
 
 def test_learned_ranker_scores_candidates(tmp_path, synth_clip):

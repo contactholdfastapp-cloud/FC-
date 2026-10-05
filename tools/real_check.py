@@ -26,6 +26,7 @@ from fctac import types as T  # noqa: E402
 from fctac.config import load_config  # noqa: E402
 from fctac.overlay.renderer import OverlayRenderer  # noqa: E402
 from fctac.vision.analyzer import VisionAnalyzer  # noqa: E402
+from tools.harvest_frames import radar_line_score  # noqa: E402
 
 
 def main():
@@ -60,6 +61,7 @@ def main():
     stats = Counter()
     rmse, tms, cconf = [], [], []
     status = Counter()
+    reasons = Counter()
     phases = Counter()
     renderer = None
     next_snap = 0.0
@@ -76,6 +78,12 @@ def main():
         fa = an.process(frame, k, t)
         k += 1
         stats["frames"] += 1
+        live = radar_line_score(frame, cfg.radar.panel) > 20      # live play: radar panel on screen
+        if live:
+            stats["live"] += 1
+            stats["live_calibrated"] += int(an.calib.H is not None and an.calib.conf >= 0.5)
+            stats["live_active"] += int(fa.recommendation.status == T.STATUS_ACTIVE)
+            stats["live_controlled"] += int(fa.state is not None and fa.state.controlled is not None)
         rd = getattr(an.radar, "last", None)
         if rd is not None and len(rd["uv"]) >= 15:
             stats["radar_read"] += 1
@@ -92,6 +100,8 @@ def main():
             if st.controlled is not None:
                 stats["controlled"] += 1
         status[fa.recommendation.status] += 1
+        if fa.recommendation.status != T.STATUS_ACTIVE:
+            reasons[f"{fa.recommendation.status}: {fa.recommendation.reason}"[:60]] += 1
         tms.append(sum(fa.timings_ms.values()))
         if t - a.start >= next_snap:
             next_snap += a.snap_every
@@ -122,6 +132,10 @@ def main():
                         cv2.resize(img, (1280, 720), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 85])
     n = max(stats["frames"], 1)
     rep = {"video": a.video, "start": a.start, "seconds": a.seconds, "frames": stats["frames"],
+           "live_play_share": round(stats["live"] / n, 3),
+           "live_calibrated_rate": round(stats["live_calibrated"] / max(stats["live"], 1), 3),
+           "live_active_rate": round(stats["live_active"] / max(stats["live"], 1), 3),
+           "live_controlled_rate": round(stats["live_controlled"] / max(stats["live"], 1), 3),
            "radar_read_rate": round(stats["radar_read"] / n, 3),
            "calibrated_rate": round(stats["calibrated"] / n, 3),
            "calib_conf_mean": round(float(np.mean(cconf)), 3) if cconf else None,
@@ -129,6 +143,7 @@ def main():
            "ball_rate": round(stats["ball"] / n, 3), "controlled_rate": round(stats["controlled"] / n, 3),
            "recommendation_status": {k2: round(v / n, 3) for k2, v in status.items()},
            "possession": {str(k2): round(v / n, 3) for k2, v in phases.items()},
+           "not_active_reasons": {k2: round(v / n, 3) for k2, v in reasons.most_common(8)},
            "analysis_ms_mean": round(float(np.mean(tms)), 2), "analysis_ms_p95": round(float(np.percentile(tms, 95)), 2)}
     print(json.dumps(rep, indent=1))
     with open(os.path.join(a.out, "report.json"), "w") as f:

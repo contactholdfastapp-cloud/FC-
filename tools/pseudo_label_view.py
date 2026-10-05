@@ -33,6 +33,7 @@ from fctac.config import load_config  # noqa: E402
 from fctac.pitch.camera import apply_h  # noqa: E402
 from fctac.training.det_dataset import save_label  # noqa: E402
 from fctac.vision.analyzer import VisionAnalyzer  # noqa: E402
+from tools.harvest_frames import radar_line_score  # noqa: E402
 
 # EA livestream picture-in-picture webcams + name panels (normalised rects)
 WEBCAMS = [(0.045, 0.68, 0.225, 0.97), (0.775, 0.68, 0.955, 0.97)]
@@ -123,6 +124,8 @@ def main():
     ap.add_argument("--max-labels", type=int, default=0)
     ap.add_argument("--webcams", default="livestream", choices=["livestream", "none"])
     ap.add_argument("--debug-every", type=int, default=0, help="also save an overlay image every N labels")
+    ap.add_argument("--all-frames", action="store_true",
+                    help="analyse frames without a visible radar panel too (slower; they are never labelled)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     cfg = load_config(a.config, {"runtime": {"detect_every": 1}, "radar": {"mode": "fc27"}})
@@ -144,6 +147,10 @@ def main():
         ok, frame = cap.read()
         if not ok:
             break
+        if not a.all_frames and radar_line_score(frame, cfg.radar.panel) < 12:
+            reasons["no_radar_panel"] = reasons.get("no_radar_panel", 0) + int(i % a.every == 0)
+            i += 1
+            continue
         an.process(frame, i // a.step, i / fps)
         if i % a.every == 0:
             objs, info = label_frame(an, frame)

@@ -53,7 +53,10 @@ class Registry:
         return best
 
     def register(self, kind: str, artefact: str, metrics: dict, primary: str, higher_is_better: bool = True,
-                 data: str = "", extra_files: tuple = (".json",), force: bool = False) -> dict:
+                 data: str = "", extra_files: tuple = (".json",), force: bool = False,
+                 better: "Optional[bool]" = None) -> dict:
+        """``better``: the caller compared new vs deployed on the *same* evaluation data
+        (stored metrics may come from different data); None = compare stored metrics."""
         lst = self.data.setdefault(kind, [])
         version = f"{kind}_v{len(lst) + 1:03d}"
         ext = os.path.splitext(artefact)[1]
@@ -63,11 +66,14 @@ class Registry:
             if os.path.exists(artefact + e):
                 shutil.copyfile(artefact + e, dst + e)
         cur = self.deployed(kind)
-        better = cur is None or force
-        if cur is not None and not force:
-            a, b = metrics.get(primary), cur["metrics"].get(primary)
-            if a is not None and b is not None:
-                better = a > b if higher_is_better else a < b
+        if better is not None:
+            better = bool(better) or cur is None or force
+        else:
+            better = cur is None or force
+            if cur is not None and not force:
+                a, b = metrics.get(primary), cur["metrics"].get(primary)
+                if a is not None and b is not None:
+                    better = a > b if higher_is_better else a < b
         entry = {"version": version, "path": dst, "metrics": metrics, "primary": primary,
                  "higher_is_better": higher_is_better, "data": data,
                  "created": _dt.datetime.now().isoformat(timespec="seconds"), "deployed": bool(better)}

@@ -22,3 +22,6 @@ benchmarks/*.json
 !benchmarks/.keep
 data/real/
 data/radar/
+# small learned weights stay with their ONNX models (fine-tuning on your own games)
+!models/radar_*.onnx.pt
+!models/detector_*.onnx.pt

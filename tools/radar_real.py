@@ -128,6 +128,13 @@ def metrics(res: list) -> dict:
     return out
 
 
+def real_score(m: dict) -> float:
+    """Label-free composite on radar-visible crops (higher = better): plausible
+    player count, no team above 11, symbols persist 0.2 s later, ball seen."""
+    g = lambda k: float(m.get(k) or 0.0)   # noqa: E731
+    return 0.35 * g("n_20_22") + 0.25 * g("teams_le_11") + 0.25 * g("persist") + 0.15 * g("ball")
+
+
 def draw(crop, d, scale=3):
     im = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     for (u, v), s, hl in zip(d["uv"], d["shape"], d["highlight"]):
@@ -221,6 +228,7 @@ def main():
     rows = load_crops(a.root, groups, step=a.step)
     res = run(a.model, rows, a.thr)
     m = metrics(res)
+    m["real_score"] = round(real_score(m), 4)
     print(json.dumps(m))
     if a.report:
         json.dump(m, open(a.report, "w"), indent=1)

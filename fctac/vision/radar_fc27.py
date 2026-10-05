@@ -174,6 +174,7 @@ class FC27RadarReader:
         self.us_shape: Optional[int] = {"triangle": SHAPE_TRIANGLE, "circle": SHAPE_CIRCLE}.get(us)
         self.fixed = self.us_shape is not None
         self.votes = np.zeros(2)
+        self.generation = 0           # bumps whenever the effective "your team" shape changes
         self.last = None
         # one-off auto-alignment of the panel position (HUD may sit a few px elsewhere)
         self.auto_align = bool(getattr(cfg, "auto_align", True))
@@ -182,11 +183,13 @@ class FC27RadarReader:
         self._calls = 0
         self._thread = None
 
+    def effective_us(self) -> int:
+        return self.us_shape if self.us_shape is not None else SHAPE_CIRCLE
+
     def swap(self):
-        if self.us_shape is None:
-            self.us_shape = SHAPE_TRIANGLE
-        self.us_shape = 1 - self.us_shape
+        self.us_shape = 1 - self.effective_us()
         self.fixed = True
+        self.generation += 1
 
     def infer(self, crop: np.ndarray) -> np.ndarray:
         x = crop[:, :, ::-1].transpose(2, 0, 1)[None].astype(self.dtype) / 255.0
@@ -208,7 +211,10 @@ class FC27RadarReader:
         if has[0] != has[1]:
             self.votes[0 if has[0] else 1] += 1.0
         if self.votes.max() >= 3.0:
-            self.us_shape = int(np.argmax(self.votes))
+            new = int(np.argmax(self.votes))
+            if new != self.effective_us():
+                self.generation += 1
+            self.us_shape = new
 
     def _maybe_align(self, frame: np.ndarray, d: dict):
         """Collect ~10 radar-visible frames 0.5 s apart, then refine the panel in the background."""
@@ -264,8 +270,7 @@ class FC27RadarReader:
             pts = np.array([L, W]) - pts
             if ball is not None:
                 ball = np.array([L, W]) - ball
-        us = self.us_shape if self.us_shape is not None else SHAPE_CIRCLE
-        teams = np.where(d["shape"] == us, TEAM_US, TEAM_THEM)
+        teams = np.where(d["shape"] == self.effective_us(), TEAM_US, TEAM_THEM)
         ctrl = None
         cand = np.nonzero((d["highlight"] >= d["hl_thr"]) & (teams == TEAM_US))[0]
         if len(cand):
