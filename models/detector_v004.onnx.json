@@ -1,0 +1,19 @@
+{
+ "input": [
+  384,
+  640
+ ],
+ "stride": 4,
+ "channels": [
+  "player",
+  "ball",
+  "controlled_marker"
+ ],
+ "marker_above": 1.15,
+ "color": "bgr",
+ "scale": 0.00392156862745098,
+ "data": "",
+ "epochs": 25,
+ "val_focal": 0.593685510483655,
+ "model_width": 1.0
+}

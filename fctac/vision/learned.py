@@ -37,6 +37,10 @@ def make_session(path: str, providers: Optional[list] = None, threads: int = 0):
     if threads:
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
+    # several small models share the CPU with OpenCV and the game: idle ORT threads must
+    # sleep instead of spin (spinning pools fight each other; measured ~2x slower in the pipeline)
+    so.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    so.add_session_config_entry("session.inter_op.allow_spinning", "0")
     return ort.InferenceSession(path, so, providers=use or ["CPUExecutionProvider"])
 
 
@@ -120,6 +124,13 @@ class OnnxDetector:
                 ok = np.hypot(d.x - cx, d.y - cy) < max(d.h * 0.5, 8)
             if ok:
                 d.controlled, d.controlled_conf = True, sc
+        # never report "players" inside the game HUD (radar symbols, scoreboard, name panels)
+        masks = getattr(self.cfg, "hud_masks", None) or []
+        if masks:
+            def in_hud(x, y):
+                return any(x0 * W <= x <= x1 * W and y0 * H <= y <= y1 * H for x0, y0, x1, y1 in masks)
+            dets = [d for d in dets if not in_hud(d.x, d.y - 0.5 * d.h)]
+            balls = [b for b in balls if not in_hud(b[1], b[2])]
         if balls:
             if ball_prior is not None:
                 balls.sort(key=lambda b: -(b[0] * np.exp(-np.hypot(b[1] - ball_prior[0], b[2] - ball_prior[1]) / (0.1 * W))))

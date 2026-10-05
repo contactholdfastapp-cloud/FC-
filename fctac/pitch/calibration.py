@@ -54,6 +54,7 @@ class RadarViewCalibrator:
         self.last_matches: list = []
         self.last_rmse = 0.0
         self._init_tries = 0
+        self.team_conflict = False      # last registration only worked without kit-colour teams
 
     def set_manual(self, H_img2pitch: np.ndarray, conf: float = 0.9):
         self.H = H_img2pitch / H_img2pitch[2, 2]
@@ -83,6 +84,38 @@ class RadarViewCalibrator:
             if H is None:
                 return self._coast()
             gate = self.cfg.gate_init_m
+        best = self._register(img, dteam, H, gate, radar_pts, radar_teams, width, height)
+        self.team_conflict = False
+        if (best is None or best[1] < 8) and (dteam >= 0).any():
+            # kit-colour team labels can be wrong (e.g. guessed during a replay): retry without them
+            alt = self._register(img, np.full_like(dteam, -1), H, gate, radar_pts, radar_teams, width, height)
+            if alt is not None and (best is None or alt[1] >= best[1] + 3):
+                best, self.team_conflict = alt, True
+        if best is None:
+            return self._coast()
+        H, n, rmse, matches = best
+        self.H = H
+        self.fails = 0
+        self._init_tries = 0
+        self.last_matches = matches
+        self.last_rmse = rmse
+        # zoomed cameras show only 7-10 players: 10 inliers at 0.5 m is already a solid fit
+        self.conf = float(np.clip((n - 4) / 6.0, 0, 1) * np.exp(-rmse / 2.0))
+        return self.H, self.conf
+
+    def reacquire(self, dets: list, radar_pts: np.ndarray, radar_teams: np.ndarray, width: int, height: int,
+                  ball: Optional[np.ndarray] = None) -> bool:
+        """Fresh radar-based init ignoring the current homography (which may come from line
+        tracking that slid onto a wrong lock).  Keeps the old state if the init fails."""
+        old = (self.H, self.conf, self.fails, self._init_tries)
+        self.H, self._init_tries = None, 0
+        H, conf = self.update(dets, radar_pts, radar_teams, width, height, ball)
+        if H is None or len(self.last_matches) < max(8, self.cfg.min_matches):
+            self.H, self.conf, self.fails, self._init_tries = old
+            return False
+        return True
+
+    def _register(self, img, dteam, H, gate, radar_pts, radar_teams, width, height):
         best = None
         for it in range(3):
             pp = apply_h(H, img)
@@ -103,28 +136,7 @@ class RadarViewCalibrator:
             res = np.linalg.norm(apply_h(Hn, img[a][inl]) - radar_pts[b][inl], axis=1)
             H = Hn / Hn[2, 2]
             best = (H, int(inl.sum()), float(np.sqrt(np.mean(res ** 2))), list(zip(a[inl], b[inl])))
-        if best is None:
-            return self._coast()
-        H, n, rmse, matches = best
-        self.H = H
-        self.fails = 0
-        self._init_tries = 0
-        self.last_matches = matches
-        self.last_rmse = rmse
-        self.conf = float(np.clip((n - 4) / 8.0, 0, 1) * np.exp(-rmse / 1.5))
-        return self.H, self.conf
-
-    def reacquire(self, dets: list, radar_pts: np.ndarray, radar_teams: np.ndarray, width: int, height: int,
-                  ball: Optional[np.ndarray] = None) -> bool:
-        """Fresh radar-based init ignoring the current homography (which may come from line
-        tracking that slid onto a wrong lock).  Keeps the old state if the init fails."""
-        old = (self.H, self.conf, self.fails, self._init_tries)
-        self.H, self._init_tries = None, 0
-        H, conf = self.update(dets, radar_pts, radar_teams, width, height, ball)
-        if H is None or len(self.last_matches) < max(8, self.cfg.min_matches):
-            self.H, self.conf, self.fails, self._init_tries = old
-            return False
-        return True
+        return best
 
     def _coast(self):
         self.last_matches = []          # matches index this frame's radar/detections: stale when coasting

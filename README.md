@@ -22,8 +22,10 @@ the reason for each: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 | part | state |
 |---|---|
 | Replay viewer + overlay renderer | working, tested |
-| Radar reader, colour detector, calibration, tracker, game state | working, measured on **synthetic** FC-style footage; needs tuning on real FC 27 footage (HUD colours, radar position) |
-| Learned detector (ONNX) | training, export and inference pipeline working; current weights are trained on synthetic frames only — **retrain on your annotated FC 27 frames** |
+| **FC 27 radar reader (learned)** | trained on 40,000 FC 27-style renders + 3,290 real FC 27 radar crops; **measured on a held-out real FC 27 match** ([docs/REAL_FC27.md](docs/REAL_FC27.md)) |
+| Calibration on real FC 27 | FC 27's broadcast camera was measured on real footage (dolly camera); radar↔view registration error **0.48 m** median on real frames |
+| Colour detector, tracker, game state | working on synthetic and real FC 27 footage |
+| Learned detector (ONNX) v004 | trained on 869 auto-labelled real FC 27 frames + synthetic; **default in the FC 27 config**; on the held-out match it makes calibration available in 97 % of live play (colour detector: 57 %) |
 | Tactics: candidates, pass/through-ball physics, shooting, defending, stabiliser | working (heuristic baseline) |
 | Decision auto-labelling, learned success/ranking model, learned movement predictor | pipelines working and benchmarked on simulator data; must be retrained on your recordings |
 | Live capture (WGC/DXGI) + Win32 transparent overlay | written against the Windows APIs; **not yet run on Windows** (the development machine is a Linux container) — first thing to test on your PC |
@@ -72,8 +74,21 @@ with its outcome.
 
 ```bat
 python -m fctac.live --config configs\fc27_1440p.json --calib configs\my_calib.json
-:: F8 overlay on/off, F9 debug panel, F10 quit.   --preview shows a debug window instead
+:: F7 swap which radar team is yours, F8 overlay on/off, F9 debug panel, F10 quit.
+:: --preview shows a debug window instead
 ```
+
+The FC 27 radar reader needs no colour setup: it reads triangles vs circles,
+finds the radar panel by itself (auto-alignment), and decides which team is
+yours from the highlighted (controlled) player. If it picks the wrong team
+(e.g. online 1v1 where both teams show a highlight), press **F7** once.
+
+### 4. Train it on your own games
+
+Record 2+ games (10+ minutes each, 2D radar on), then drag them onto
+`scripts\train_my_games.bat`. It auto-labels your radar and players,
+fine-tunes both models and switches a model on only if it measured better on
+your last recording. Details: [docs/REAL_FC27.md](docs/REAL_FC27.md).
 
 ## Improving the models with your own games
 
@@ -94,6 +109,23 @@ python tools\game_fps.py --presentmon C:\tools\PresentMon.exe --label baseline  
 Every trained model goes into `models/registry.json` with its benchmark, and is
 deployed only if it beats the current one (`runtime.ranker` /
 `runtime.predictor` = `registry`, `runtime.detector` = `onnx`).
+
+## Measured on real FC 27 footage (EA's official livestream, match 3 held out)
+
+Details and method: [docs/REAL_FC27.md](docs/REAL_FC27.md). No hand labels
+exist yet, so the radar numbers are consistency checks (a correct reader sees
+22 players, at most 11 per team, the same symbols 0.2 s later).
+
+| stage | result |
+|---|---|
+| Radar: frames read with 20–22 players | **84 %** (old colour reader: 42 %) |
+| Radar: no team above 11 / symbols persist 0.2 s | **88 % / 96 %** (old: 41 % / 89 %) |
+| Radar: ball found | **98 %** (old reader often took a white ring for the ball) |
+| Calibration init on real gameplay frames | **19/19** with the FC 27 dolly-camera search (old search: 2/19), 8 ms |
+| Radar ↔ main-view registration error | **0.42–0.48 m** median |
+| Player detector trained on real frames (v004) vs colour detector, match 3 | player recall 0.80 vs 0.73, F1 0.778 vs 0.774, ball recall 0.22 vs 0.18 |
+| Live play, match 3 (held out) / match 1, 4 min each | calibration available **85 % / 94 %**, controlled player known 98 % / 94 %, advice shown 52 % / 61 % |
+| Full analysis per frame, real 1080p, 4 vCPU, **no GPU** | **28.6 ms mean, 52 ms p95** (radar 9.5, detector 20.6 every 2nd frame) |
 
 ## Measured results so far (development container, CPU only, synthetic footage)
 

@@ -61,6 +61,30 @@
    "higher_is_better": true,
    "data": "data/datasets/synth",
    "created": "2026-10-04T13:46:18",
+   "deployed": false
+  },
+  {
+   "version": "detector_v004",
+   "path": "models/detector_v004.onnx",
+   "metrics": {
+    "real_m3_det_score": 0.4432,
+    "real_m3_player_precision": 0.7592,
+    "real_m3_player_recall": 0.7982,
+    "real_m3_f1": 0.7782,
+    "real_m3_ball_precision": 0.3231,
+    "real_m3_ball_recall": 0.2165,
+    "real_m3_controlled_acc": 0.0,
+    "real_m3_foot_err_px": 7.69,
+    "real_m3_ms_mean": 18.51,
+    "real_m3_images": 170,
+    "det_score": 0.4432,
+    "real_m3_colour_detector_det_score": 0.4309,
+    "real_m3_detector_v003_det_score": 0.0933
+   },
+   "primary": "det_score",
+   "higher_is_better": true,
+   "data": "data/datasets/real/m1+m2 (869 auto-labelled real FC 27 frames) + data/datasets/synth",
+   "created": "2026-10-05T10:42:54",
    "deployed": true
   }
  ],

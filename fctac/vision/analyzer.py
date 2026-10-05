@@ -191,27 +191,35 @@ class VisionAnalyzer:
                 for d, tt, cc in zip(players, team, conf):
                     d.team, d.team_conf = int(tt), float(cc)
         with tm.stage("calib"):
-            if not detected and not self._line_mode:
-                H, cconf = self.calib.H, self.calib.conf
-            elif radar is not None and radar.ok and detected:
+            fresh = False
+            if radar is not None and radar.ok and detected:
                 H, cconf = self.calib.update(players, radar.points, radar.teams, w, h, radar.ball)
-                self._reg_fails = 0 if self.calib.last_matches else self._reg_fails + 1
-                if self._line_mode and self._reg_fails >= 10 and self._reg_fails % max(1, self.calib.cfg.init_every) == 0:
+                c = self.calib
+                # a fresh registration to the radar this frame is the reference; it ends line tracking
+                fresh = c.fails == 0 and len(c.last_matches) >= max(7, c.cfg.min_matches) and c.last_rmse < 1.0
+                self._reg_fails = 0 if c.last_matches else self._reg_fails + 1
+                if not fresh and self._line_mode and self._reg_fails >= 10 \
+                        and self._reg_fails % max(1, c.cfg.init_every) == 0:
                     # line tracking can hold a confident but wrong lock: re-acquire from the radar
-                    if self.calib.reacquire(players, radar.points, radar.teams, w, h, radar.ball):
-                        H, cconf = self.calib.H, self.calib.conf
-                        self._line_mode = False
-                        self._reg_fails = 0
-                if cconf >= 0.5:
+                    fresh = self.calib.reacquire(players, radar.points, radar.teams, w, h, radar.ball)
+                    H, cconf = c.H, c.conf
+                if c.team_conflict:
+                    self.kits = TeamPrototypes(rate=0.05)   # kit guess contradicts the radar: relearn
+                if fresh:
+                    self._line_mode = False
+                    self._reg_fails = 0
                     # detections registered to radar dots inherit the radar's team label
-                    for di, ri in self.calib.last_matches:
+                    for di, ri in c.last_matches:
                         if di < len(players) and ri < len(radar.teams):
                             players[di].team, players[di].team_conf = int(radar.teams[ri]), 1.0
                 self._learn_kits(players, radar)
-            else:
+            elif detected:
+                # radar hidden (set piece, replay): nothing to register against -> confidence decays
                 H, cconf = self.calib._coast() if self.calib.H is not None else (None, 0.0)
-            # radar registration unavailable/weak -> track the last good homography from pitch lines
-            if self.lines is not None and self.calib.H is not None and (cconf < 0.5 or self._line_mode):
+            else:
+                H, cconf = self.calib.H, self.calib.conf
+            # no fresh radar registration -> follow the camera from the pitch lines
+            if not fresh and self.lines is not None and self.calib.H is not None and (cconf < 0.5 or self._line_mode):
                 if not self._line_mode:
                     self.lines.reset()
                     self._line_mode = True
@@ -219,9 +227,8 @@ class VisionAnalyzer:
                 if Hl is not None and cl >= 0.5:
                     self.calib.H, self.calib.conf, self.calib.fails = Hl, cl, 0
                     H, cconf = Hl, cl
-                if radar is not None and radar.ok and self.calib.last_rmse < 1.5 and cconf >= 0.5 and detected \
-                        and self.calib.fails == 0 and len(self.calib.last_matches) >= 8:
-                    self._line_mode = False      # radar registration healthy again
+            if self.calib.H is None:
+                self._line_mode = False
         if H is not None and cconf >= 0.5 and dets:
             # people/objects off the pitch (stewards, photographers, ad boards) are not players
             pts = np.array([[d.x, d.y] for d in dets])

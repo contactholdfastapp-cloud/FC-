@@ -8,7 +8,8 @@ LatestFrameBuffer  ── single slot, newest frame wins, stale frames dropped (
   │
   ▼  analysis loop (one frame at a time, always the newest)
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ radar reader      FC's 2D radar -> all 22 players + ball + controlled   │ ~3-5 ms CPU
+│ radar reader      FC 27 radar -> 22 players (triangles vs circles),     │ ~4 ms CPU 1 thread
+│                   ball "+", controlled highlight  (TinyRadarNet CNN)  │ ~1 ms GPU
 │ main-view detector colour baseline | ONNX point detector                │ ~10 ms CPU / ~1-3 ms GPU
 │ team colours      learned online from radar-registered detections       │ <0.2 ms
 │ calibration       homography from radar <-> detection registration      │ ~1.5 ms
@@ -31,10 +32,19 @@ calibration, covers off-screen players and gives team labels for free. It is
 the backbone of the game state. The main-view detector adds precise screen
 positions (for drawing) and refines positions near the ball.
 
+**FC 27 radar = shapes, not colours.** On real FC 27 footage one team is
+drawn as triangles and the other as circles, with match-dependent fills and
+outlines, so a small CNN reads a canonical 320×192 crop of the radar
+(`fctac/vision/radar_fc27.py`). It was trained on FC 27-style renders on real
+backgrounds plus self-labelled real radar crops. The panel position is
+refined automatically at start-up, and which team is yours comes from the
+highlighted player (F7 swaps it). See [REAL_FC27.md](REAL_FC27.md).
+
 **Calibration by registration.** The screen↔pitch homography is estimated each
 frame by matching projected detections to radar dots (Hungarian + RANSAC
 homography), seeded by a coarse-to-fine grid search over broadcast-camera
-poses. It works for any camera style and reports its own confidence. Decisions
+poses. FC 27's camera is a dolly that slides along the touchline behind the
+ball (measured on real footage), so the search is seeded at the radar ball. It works for any camera style and reports its own confidence. Decisions
 need pitch coordinates (from the radar), not the homography. The homography is
 only needed to draw arrows, so when it is unreliable only the label is shown.
 

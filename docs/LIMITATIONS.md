@@ -25,8 +25,12 @@ to fix each.
   no game here). Use `tools/game_fps.py` (PresentMon) with and without the
   assistant; the live debug panel shows CPU/GPU/VRAM when psutil/pynvml or
   nvidia-smi are available.
-* Latency numbers in the README are from a 4-vCPU VM, often under load from
-  training jobs, with no GPU. Expect different numbers on your machine.
+* Latency numbers in the README are from a 4-vCPU VM with no GPU (real
+  1080p FC 27 frames: 28.6 ms mean, 52 ms p95). Expect different numbers on
+  your machine; with onnxruntime-gpu or -directml both models run on the GPU.
+* The real-frame player labels are automatic (radar + calibration + colour
+  detector), not hand-checked. Detector scores on them favour the colour
+  detector, whose detections seeded the labels.
 
 ## Perception
 
