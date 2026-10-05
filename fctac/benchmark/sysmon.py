@@ -29,7 +29,10 @@ class SysMonitor:
             self.psutil = None
         self.nvml = None
         try:
-            import pynvml
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")      # pynvml prints a harmless deprecation notice
+                import pynvml
             pynvml.nvmlInit()
             self.nvml = pynvml
             self.nvh = pynvml.nvmlDeviceGetHandleByIndex(0)

@@ -9,7 +9,7 @@ pip install -e .[dev] || goto :err
 REM Inference provider: CUDA build for NVIDIA (falls back to DirectML/CPU automatically if absent)
 pip install onnxruntime-gpu || pip install onnxruntime-directml || pip install onnxruntime
 REM Live capture backends (Windows Graphics Capture preferred, DXGI fallback) + system stats
-pip install windows-capture dxcam psutil pynvml
+pip install windows-capture dxcam psutil nvidia-ml-py
 python tools\inspect_machine.py --dxdiag
 python -m pytest -q
 echo.

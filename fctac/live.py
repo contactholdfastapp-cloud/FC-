@@ -267,6 +267,8 @@ def main(argv=None):
     from fctac.benchmark.sysmon import SysMonitor
     mon = SysMonitor().start()
     rt = LiveRuntime(cfg, src, presenter, an, sysmon=mon)
+    print(f"FC27 assistant running (capture: {getattr(src, 'name', '?')}). "
+          "F8 = overlay on/off, F9 = debug info, F10 = quit.", flush=True)
     rep = rt.run(a.seconds)
     rep["system"] = mon.latest
     mon.stop()
