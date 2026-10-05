@@ -116,7 +116,17 @@ def main():
     summary = {}
 
     # 1. harvest (file name -> group, so the held-out recording stays separate)
-    if not os.path.exists(os.path.join(harvest, "index.csv")):
+    idx = os.path.join(harvest, "index.csv")
+    if os.path.exists(idx):
+        # reuse only if it was made from exactly these videos (and the same held-out layout)
+        import csv
+        groups = {r["group"] for r in csv.DictReader(open(idx))}
+        same = {g[:-5] if g.endswith("_held") else g for g in groups} == set(names) \
+            and any(g.endswith("_held") for g in groups) == single
+        if not same:
+            print("new set of videos -> harvesting again", flush=True)
+            shutil.rmtree(harvest)
+    if not os.path.exists(idx):
         links = os.path.join(work, "videos")
         os.makedirs(links, exist_ok=True)
         named = []
@@ -181,6 +191,13 @@ def main():
             d = os.path.join(det_root, n)
             if not os.path.exists(d) or not os.listdir(d):
                 run(["tools/pseudo_label_view.py", "--video", v, "--out", d, "--source", n, "--webcams", a.webcams])
+        if not single:                               # a previous single-video run split this one: undo
+            for n in names:
+                hd = os.path.join(det_root, n + "_held")
+                if os.path.isdir(hd):
+                    for f in os.listdir(hd):
+                        shutil.move(os.path.join(hd, f), os.path.join(det_root, n, f))
+                    shutil.rmtree(hd)
         if single and not os.path.exists(os.path.join(det_root, held)):
             _split_single_labels(os.path.join(det_root, names[0]), os.path.join(det_root, held), a.held_fraction)
         train_dirs = [os.path.join(det_root, n) for n in train_names]
