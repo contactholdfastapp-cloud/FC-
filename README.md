@@ -85,10 +85,12 @@ yours from the highlighted (controlled) player. If it picks the wrong team
 
 ### 4. Train it on your own games
 
-Record 2+ games (10+ minutes each, 2D radar on), then drag them onto
-`scripts\train_my_games.bat`. It auto-labels your radar and players,
-fine-tunes both models and switches a model on only if it measured better on
-your last recording. Details: [docs/REAL_FC27.md](docs/REAL_FC27.md).
+Record one or more full matches (2D radar on, normal 1440p gameplay), then
+drag the video files onto `scripts\train_my_games.bat`. It installs PyTorch
+the first time (uses your NVIDIA GPU when there is one), auto-labels your
+radar and players, fine-tunes both models, and switches a model on only if it
+measured better on held-out footage: the last recording, or the last quarter
+of a single recording. Details: [docs/REAL_FC27.md](docs/REAL_FC27.md).
 
 ## Improving the models with your own games
 

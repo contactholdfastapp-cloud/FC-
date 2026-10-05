@@ -210,12 +210,14 @@ Watch it: `python tools/render_demo.py --video data/real/m1.mp4 --start 18 --sec
 The livestream is 1080p, 2v2 co-op, with broadcast webcams. Your own 1440p
 games are better training data:
 
-1. Record 2 or more games (10+ minutes each) with the 2D radar on
+1. Record one or more full matches with the 2D radar on (Kick-Off or Squad
+   Battles vs the CPU is ideal: only your team shows a controlled player)
    (`python tools\record.py --out data\recordings\game1 --minutes 10`, or OBS
    or ShadowPlay at 1440p60).
 2. Drag the recordings onto `scripts\train_my_games.bat` (or run
    `python tools\train_on_my_games.py game1.mp4 game2.mp4`).
 3. It auto-labels your radar and players, fine-tunes both models, and
-   compares new vs current on the last recording. A new model is only switched
+   compares new vs current on held-out footage (the last recording, or the
+   last quarter of a single one). A new model is only switched
    on if it measured better. Results go to `data\my_games\summary.json`, and a
    radar QA picture to `data\my_games\radar_qa.jpg`.

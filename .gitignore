@@ -25,3 +25,4 @@ data/radar/
 # small learned weights stay with their ONNX models (fine-tuning on your own games)
 !models/radar_*.onnx.pt
 !models/detector_*.onnx.pt
+data/my_games*/

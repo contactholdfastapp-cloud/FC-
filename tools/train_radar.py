@@ -43,6 +43,7 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--patch", type=int, nargs=2, default=[128, 192])
     ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument("--device", default="auto", help="auto | cuda | cpu")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--init", default="")
     ap.add_argument("--out", default="runs/radar")
@@ -55,21 +56,27 @@ def main():
     synth = []
     for d in a.synth:
         synth += load_labels(d)
-    val = synth[-a.val:] if a.val else []
-    train = synth[:-a.val] if a.val else synth
+    nval = min(a.val, len(synth) // 5)
+    val = synth[-nval:] if nval else []
+    train = synth[:-nval] if nval else synth
     real = []
     for d in a.real:
         real += load_labels(d)
     real_val = load_labels(a.real_val) if a.real_val else []
 
+    dev = torch.device("cuda" if a.device == "auto" and torch.cuda.is_available() else
+                       (a.device if a.device != "auto" else "cpu"))
+    print("training on", dev, flush=True)
     net = TinyRadarNet()
     if a.init or a.export_only:
         net.load_state_dict(torch.load(a.export_only or a.init, map_location="cpu"))
+    net.to(dev)
     best_path = os.path.join(a.out, "best.pt")
     hist = []
     if not a.export_only:
         rows = train + real
-        weights = np.array([1.0] * len(train) + [a.real_weight * len(train) / max(len(real), 1)] * len(real))
+        per_real = a.real_weight * max(len(train), 1) / max(len(real), 1) if train else 1.0
+        weights = np.array([1.0] * len(train) + [per_real] * len(real))
         weights /= weights.sum()
         n_ep = a.samples_per_epoch or len(rows)
         ds = RadarDataset(rows, tuple(a.patch), train=True)
@@ -85,12 +92,13 @@ def main():
             t0 = time.time()
             tot = 0.0
             for k, (x, t, m) in enumerate(dl):
+                x, t, m = x.to(dev, non_blocking=True), t.to(dev, non_blocking=True), m.to(dev, non_blocking=True)
                 loss = focal_loss(net(x), t, m)
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
                 sched.step()
-                tot += float(loss)
+                tot += float(loss.detach())
                 if k % 200 == 0:
                     print(f"ep {ep} it {k}/{n_ep // a.batch} loss {tot / (k + 1):.4f} {time.time() - t0:.0f}s", flush=True)
             mv = evaluate(torch_predictor(net), val[:600]) if val else {}
@@ -104,8 +112,9 @@ def main():
             if s > best:
                 best = s
                 torch.save(net.state_dict(), best_path)
-        net.load_state_dict(torch.load(best_path, map_location="cpu"))
+        net.load_state_dict(torch.load(best_path, map_location=dev))
     onnx_path = os.path.join(a.out, "radar.onnx")
+    net = net.cpu()
     torch.save(net.state_dict(), onnx_path + ".pt")        # weights travel with the model (fine-tuning)
     meta = {"input": [192, 320], "stride": 2, "channels": ["triangle", "circle", "ball", "highlight"],
             "thr": 0.35, "train_synth": a.synth, "train_real": a.real}

@@ -247,11 +247,12 @@ def evaluate(predict, rows: list, tol: float = 3.0, ball_tol: float = 4.0, thr: 
 
 def torch_predictor(net):
     net.eval()
+    dev = next(net.parameters()).device
 
     def f(img_bgr):
         x = torch.from_numpy(np.ascontiguousarray(img_bgr[:, :, ::-1]).transpose(2, 0, 1)[None].astype(np.float32) / 255.0)
         with torch.no_grad():
-            return torch.sigmoid(net(x))[0].numpy()
+            return torch.sigmoid(net(x.to(dev)))[0].cpu().numpy()
     return f
 
 
@@ -267,7 +268,7 @@ def onnx_predictor(path: str, providers=None):
 
 
 def export_onnx(net, path: str, meta: dict):
-    net.eval()
+    net = net.cpu().eval()
     m = Exported(net)
     x = torch.zeros(1, 3, CH, CW)
     torch.onnx.export(m, x, path, input_names=["image"], output_names=["heat"], opset_version=17,
