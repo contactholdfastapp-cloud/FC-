@@ -122,6 +122,10 @@ def main():
     ap.add_argument("--held-fraction", type=float, default=0.25, help="single recording: share held out (its end)")
     ap.add_argument("--dry-run", action="store_true", help="train and compare, but do not touch models/registry.json")
     a = ap.parse_args()
+    if not a.videos:
+        a.videos = pick_videos()
+    if not a.videos:
+        raise SystemExit("no videos chosen")
     # sorted by file name: Windows drag-and-drop order is random, so "the last one" = last by name
     vids = sorted((os.path.abspath(v) for v in a.videos), key=lambda v: os.path.basename(v).lower())
     for v in vids:
