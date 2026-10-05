@@ -75,9 +75,13 @@ def process(job):
     grp = name or group_of(path, groups)
     cap = cv2.VideoCapture(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     rows = []
     i = 0
     while True:
+        if i and i % 3600 == 0:                     # progress about once per minute of video
+            pct = f" ({100 * i // total}%)" if total else ""
+            print(f"  {clip}: {i / fps / 60:.0f} min of video read{pct}", flush=True)
         need_frame = i % frame_every == 0
         need_radar = i % radar_every == 0
         if not (need_frame or need_radar):
