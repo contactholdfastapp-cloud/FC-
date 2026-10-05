@@ -39,13 +39,26 @@ from tools.harvest_frames import radar_line_score  # noqa: E402
 WEBCAMS = [(0.045, 0.68, 0.225, 0.97), (0.775, 0.68, 0.955, 0.97)]
 
 
+def _person_evidence(frame: np.ndarray, x: float, y: float, hj: float, dcfg, min_frac: float = 0.12) -> bool:
+    """Something that is not grass in the box a player standing at (x, y) would occupy."""
+    hh, ww = frame.shape[:2]
+    x0, x1 = int(max(0, x - 0.25 * hj)), int(min(ww, x + 0.25 * hj))
+    y0, y1 = int(max(0, y - 0.9 * hj)), int(min(hh, y + 0.05 * hj))
+    if x1 - x0 < 3 or y1 - y0 < 3:
+        return False
+    hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+    grass = cv2.inRange(hsv, tuple(dcfg.grass_lo), tuple(dcfg.grass_hi))
+    return float((grass == 0).mean()) >= min_frac
+
+
 def label_frame(an: VisionAnalyzer, frame: np.ndarray, gate_m: float = 1.5) -> tuple:
     """-> (objects, info) or (None, reason)"""
     h, w = frame.shape[:2]
     cal = an.calib
     rd = an.radar
     last = getattr(rd, "last", None)
-    if cal.H is None or cal.conf < 0.6 or cal.last_rmse > 1.0 or len(cal.last_matches) < 10:
+    # a fresh radar registration this frame with enough inliers (zoomed cameras show fewer players)
+    if cal.H is None or cal.fails != 0 or cal.last_rmse > 0.9 or len(cal.last_matches) < 7:
         return None, "calibration"
     if last is None or len(last["uv"]) < 18:
         return None, "radar"
@@ -79,17 +92,39 @@ def label_frame(an: VisionAnalyzer, frame: np.ndarray, gate_m: float = 1.5) -> t
             elif -1.0 < P[i, 0] < 106.0 and -1.0 < P[i, 1] < 69.0:
                 objs.append({"cls": "ignore", "x": round(float(d.x), 1), "y": round(float(d.y), 1),
                              "r": round(float(max(12.0, 0.6 * d.h)), 1)})
-    # radar players the detector missed: unsure -> ignore
-    hs = [o["h"] for o in objs if o["cls"] == "player"]
+    # radar players the detector missed (dark kits, occlusion): inside the area where the
+    # registration interpolates (hull of the matched players) the projected radar position
+    # is a label; outside it the homography extrapolates -> ignore with a wide margin
+    pl = [o for o in objs if o["cls"] == "player"]
+    hs = [o["h"] for o in pl]
     href = float(np.median(hs)) if hs else 0.05 * h
+    if len(pl) >= 3:
+        A = np.c_[[o["y"] for o in pl], np.ones(len(pl))]
+        coef = np.linalg.lstsq(A, np.array(hs), rcond=None)[0]       # height grows with screen y
+    else:
+        coef = np.array([0.0, href])
+    hull = None
+    if len(pl) >= 4:
+        P2 = np.array([[o["x"], o["y"]] for o in pl], np.float32)
+        c = P2.mean(0)
+        hull = cv2.convexHull(((P2 - c) * 1.15 + c).astype(np.float32))
     q = apply_h(Hinv, R)
     for j in range(len(R)):
         if j in used_r:
             continue
         x, y = q[j]
-        if 0 <= x < w and 0 <= y < h:
-            objs.append({"cls": "ignore", "x": round(float(x), 1), "y": round(float(y), 1),
-                         "r": round(float(max(14.0, 0.8 * href)), 1)})
+        if not (0 <= x < w and 0 <= y < h):
+            continue
+        inside = hull is not None and cv2.pointPolygonTest(hull, (float(x), float(y)), False) >= 0
+        hj = float(np.clip(coef[0] * y + coef[1], 0.5 * href, 2.0 * href))
+        if inside and not _person_evidence(frame, x, y, hj, an.cfg.detector):
+            inside = False                                   # empty grass there: projection unsure
+        if inside:
+            objs.append({"cls": "player", "x": round(float(x), 1), "y": round(float(y), 1), "h": round(hj, 1),
+                         "team": -1, "radar_shape": int(last["shape"][j]), "controlled": bool(hl[j]), "src": "radar"})
+        else:
+            objs.append({"cls": "ignore", "x": round(float(x), 1), "y": round(float(y) - 0.4 * hj, 1),
+                         "r": round(float(max(24.0, 1.4 * hj)), 1)})
     # ball: needs radar and image to agree
     if last["ball_uv"] is not None:
         B = canon_to_pitch(last["ball_uv"][None])[0]
@@ -114,6 +149,8 @@ def label_frame(an: VisionAnalyzer, frame: np.ndarray, gate_m: float = 1.5) -> t
 
 
 def main():
+    if os.environ.get("FCTAC_CV_THREADS"):
+        cv2.setNumThreads(int(os.environ["FCTAC_CV_THREADS"]))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--video", required=True)
     ap.add_argument("--out", required=True)
@@ -124,11 +161,17 @@ def main():
     ap.add_argument("--max-labels", type=int, default=0)
     ap.add_argument("--webcams", default="livestream", choices=["livestream", "none"])
     ap.add_argument("--debug-every", type=int, default=0, help="also save an overlay image every N labels")
+    ap.add_argument("--trust-controlled", action="store_true",
+                    help="train the controlled-marker head on the radar highlight (single-player games)")
+    ap.add_argument("--radar-model", default="", help="FC 27 radar ONNX (default: deployed in the registry)")
     ap.add_argument("--all-frames", action="store_true",
                     help="analyse frames without a visible radar panel too (slower; they are never labelled)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    cfg = load_config(a.config, {"runtime": {"detect_every": 1}, "radar": {"mode": "fc27"}})
+    ov = {"runtime": {"detect_every": 1}, "radar": {"mode": "fc27"}}
+    if a.radar_model:
+        ov["radar"]["fc27_model"] = a.radar_model
+    cfg = load_config(a.config, ov)
     an = VisionAnalyzer(cfg)
     cap = cv2.VideoCapture(a.video)
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
@@ -162,7 +205,7 @@ def main():
                 cv2.imwrite(p, frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
                 save_label(p, {"image": name, "width": frame.shape[1], "height": frame.shape[0], "source": src,
                                "frame": i, "status": "auto", "objects": objs, "ignore_rects": ignore_rects,
-                               "info": info})
+                               "ignore_channels": [] if a.trust_controlled else ["controlled"], "info": info})
                 n += 1
                 if a.debug_every and n % a.debug_every == 1:
                     dbg = frame.copy()

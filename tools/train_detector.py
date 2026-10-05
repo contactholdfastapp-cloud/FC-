@@ -43,10 +43,11 @@ def letterbox_params(w, h, in_w, in_h):
 
 
 class DetDataset(Dataset):
-    def __init__(self, paths, in_w=640, in_h=384, augment=False):
+    def __init__(self, paths, in_w=640, in_h=384, augment=False, crop=None):
         self.paths = paths
         self.in_w, self.in_h = in_w, in_h
         self.aug = augment
+        self.crop = crop                    # (h, w) random training crops: the net is fully convolutional
         self.rng = np.random.default_rng(0)
 
     def __len__(self):
@@ -73,13 +74,16 @@ class DetDataset(Dataset):
         off = np.zeros((2, Ho, Wo), np.float32)
         hgt = np.zeros((1, Ho, Wo), np.float32)
         mask = np.zeros((1, Ho, Wo), np.float32)
-        weight = np.ones((1, Ho, Wo), np.float32)
+        weight = np.ones((N_HM, Ho, Wo), np.float32)
+        chan = {"player": 0, "ball": 1, "controlled": 2}
+        for c in lab.get("ignore_channels", []):          # e.g. controlled flags not trustworthy
+            weight[chan[c]] = 0.0
         yy, xx = np.mgrid[0:Ho, 0:Wo]
         for r in lab.get("ignore_rects", []):
             x0, y0, x1, y1 = r[0] * w * s / STRIDE, r[1] * h * s / STRIDE, r[2] * w * s / STRIDE, r[3] * h * s / STRIDE
             if flip:
                 x0, x1 = Wo - x1, Wo - x0
-            weight[0, max(0, int(y0)):max(0, int(np.ceil(y1))), max(0, int(x0)):max(0, int(np.ceil(x1)))] = 0.0
+            weight[:, max(0, int(y0)):max(0, int(np.ceil(y1))), max(0, int(x0)):max(0, int(np.ceil(x1)))] = 0.0
         for o in objs:
             if o["cls"] != "ignore":
                 continue
@@ -87,7 +91,7 @@ class DetDataset(Dataset):
             if flip:
                 cx = self.in_w - 1 - cx
             rr = max(1.0, o.get("r", 20.0) * s / STRIDE)
-            weight[0][((xx - cx / STRIDE) ** 2 + (yy - o["y"] * s / STRIDE) ** 2) <= rr * rr] = 0.0
+            weight[:, ((xx - cx / STRIDE) ** 2 + (yy - o["y"] * s / STRIDE) ** 2) <= rr * rr] = 0.0
         for o in objs:
             if o["cls"] == "ignore":
                 continue
@@ -119,9 +123,17 @@ class DetDataset(Dataset):
             if o["cls"] != "ball":
                 hgt[0, iy, ix] = np.log(ph)
             mask[0, iy, ix] = 1.0
-        t = torch.from_numpy(x.transpose(2, 0, 1).astype(np.float32) / 255.0)
-        return (t, torch.from_numpy(hm), torch.from_numpy(off), torch.from_numpy(hgt), torch.from_numpy(mask),
-                torch.from_numpy(weight))
+        if self.crop is not None:
+            ch, cw = self.crop
+            gy = int(self.rng.integers(0, (self.in_h - ch) // STRIDE + 1))
+            gx = int(self.rng.integers(0, (self.in_w - cw) // STRIDE + 1))
+            x = x[gy * STRIDE:gy * STRIDE + ch, gx * STRIDE:gx * STRIDE + cw]
+            sl = (slice(None), slice(gy, gy + ch // STRIDE), slice(gx, gx + cw // STRIDE))
+            hm, off, hgt, mask, weight = hm[sl], off[sl], hgt[sl], mask[sl], weight[sl]
+        t = torch.from_numpy(np.ascontiguousarray(x).transpose(2, 0, 1).astype(np.float32) / 255.0)
+        return (t, torch.from_numpy(np.ascontiguousarray(hm)), torch.from_numpy(np.ascontiguousarray(off)),
+                torch.from_numpy(np.ascontiguousarray(hgt)), torch.from_numpy(np.ascontiguousarray(mask)),
+                torch.from_numpy(np.ascontiguousarray(weight)))
 
 
 def export(model, args, out_dir, val_focal=None):
@@ -163,7 +175,8 @@ def train(args):
         model = TinyCenterNet(args.model_width)
         model.load_state_dict(torch.load(os.path.join(out_dir, "best.pt")))
         return export(model, args, out_dir), splits
-    tr = DetDataset(splits["train"], args.width, args.height, augment=True)
+    tr = DetDataset(splits["train"], args.width, args.height, augment=True,
+                    crop=tuple(args.crop) if args.crop else None)
     va = DetDataset(splits["val"], args.width, args.height, augment=False)
     dl = DataLoader(tr, batch_size=args.batch, shuffle=True, num_workers=args.workers, drop_last=True)
     vl = DataLoader(va, batch_size=args.batch, shuffle=False, num_workers=args.workers)
@@ -212,6 +225,8 @@ def main():
     ap.add_argument("--val-dirs", nargs="*", default=[], help="explicit val roots (held-out match)")
     ap.add_argument("--extra-train", nargs="*", default=[], help="more train data (e.g. synthetic) mixed in")
     ap.add_argument("--init", default="", help="start from a checkpoint (.pt)")
+    ap.add_argument("--crop", type=int, nargs=2, default=None, help="train on random h w crops (faster on CPU)")
+    ap.add_argument("--threads", type=int, default=0)
     ap.add_argument("--name", default="exp")
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch", type=int, default=16)
@@ -224,6 +239,8 @@ def main():
     ap.add_argument("--no-register", action="store_true")
     ap.add_argument("--export-only", action="store_true", help="export runs/detector/<name>/best.pt without training")
     a = ap.parse_args()
+    if a.threads:
+        torch.set_num_threads(a.threads)
     onnx_path, splits = train(a)
     if a.no_register:
         return

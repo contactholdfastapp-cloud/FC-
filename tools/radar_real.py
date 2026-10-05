@@ -213,6 +213,8 @@ def pseudo(res: list, out: str, min_persist: float = 0.85):
 
 
 def main():
+    if os.environ.get("FCTAC_CV_THREADS"):
+        cv2.setNumThreads(int(os.environ["FCTAC_CV_THREADS"]))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["eval", "pseudo"])
     ap.add_argument("--model", required=True, help='ONNX radar model, or "color" for the colour-reader baseline')

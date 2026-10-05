@@ -271,12 +271,18 @@ class FC27RadarReader:
             if ball is not None:
                 ball = np.array([L, W]) - ball
         teams = np.where(d["shape"] == self.effective_us(), TEAM_US, TEAM_THEM)
+        # your team always has a controlled player: take the most highlighted symbol of your
+        # team (top-1 is far more precise than a plain threshold); co-op: nearest the ball
         ctrl = None
-        cand = np.nonzero((d["highlight"] >= d["hl_thr"]) & (teams == TEAM_US))[0]
-        if len(cand):
-            ctrl = int(cand[np.argmax(d["highlight"][cand])])
-            if len(cand) > 1 and ball is not None:      # two highlighted (co-op): nearest the ball
+        ours = np.nonzero(teams == TEAM_US)[0]
+        thr = float(getattr(self.cfg, "highlight_thr", 0.25))
+        if len(ours):
+            cand = ours[d["highlight"][ours] >= max(thr, d["hl_thr"])]
+            if len(cand) > 1 and ball is not None:
                 ctrl = int(cand[np.argmin(np.hypot(*(pts[cand] - ball).T))])
+            else:
+                k = int(ours[np.argmax(d["highlight"][ours])])
+                ctrl = k if d["highlight"][k] >= thr else None
         return RadarResult(ok=True, points=pts, teams=teams, controlled=ctrl, ball=ball, roi_px=roi)
 
 

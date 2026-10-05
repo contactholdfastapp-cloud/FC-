@@ -33,8 +33,10 @@ def make_session(path: str, providers: Optional[list] = None, threads: int = 0):
             use.append(p)
     so = ort.SessionOptions()
     so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    threads = threads or int(os.environ.get("FCTAC_ORT_THREADS", "0"))   # 0 = ONNX Runtime default
     if threads:
         so.intra_op_num_threads = threads
+        so.inter_op_num_threads = 1
     return ort.InferenceSession(path, so, providers=use or ["CPUExecutionProvider"])
 
 

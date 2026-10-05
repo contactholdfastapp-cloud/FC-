@@ -114,6 +114,18 @@ class RadarViewCalibrator:
         self.conf = float(np.clip((n - 4) / 8.0, 0, 1) * np.exp(-rmse / 1.5))
         return self.H, self.conf
 
+    def reacquire(self, dets: list, radar_pts: np.ndarray, radar_teams: np.ndarray, width: int, height: int,
+                  ball: Optional[np.ndarray] = None) -> bool:
+        """Fresh radar-based init ignoring the current homography (which may come from line
+        tracking that slid onto a wrong lock).  Keeps the old state if the init fails."""
+        old = (self.H, self.conf, self.fails, self._init_tries)
+        self.H, self._init_tries = None, 0
+        H, conf = self.update(dets, radar_pts, radar_teams, width, height, ball)
+        if H is None or len(self.last_matches) < max(8, self.cfg.min_matches):
+            self.H, self.conf, self.fails, self._init_tries = old
+            return False
+        return True
+
     def _coast(self):
         self.last_matches = []          # matches index this frame's radar/detections: stale when coasting
         self.fails += 1
@@ -175,7 +187,7 @@ class RadarViewCalibrator:
     def _dolly_coarse(self, img, radar_pts, width, height, ball):
         # the camera trails the ball by a few metres; the score is sharp in x -> 2 m steps
         if ball is not None:
-            xs = np.clip(float(ball[0]) + np.arange(-12.0, 9.0, 2.0), -5.0, 110.0)
+            xs = np.clip(float(ball[0]) + np.arange(-16.0, 13.0, 2.0), -5.0, 110.0)
         else:
             xs = np.arange(-5.0, 111.0, 2.5)
         fks = np.array([1.45, 1.64, 1.85])

@@ -5,13 +5,17 @@ to fix each.
 
 ## Not validated on the real target
 
-* **No real FC 27 footage was available during development.** Everything was
-  measured on a synthetic FC-style renderer with ground truth
-  (`fctac/sim`). FC 27's real HUD (radar position, dot colours, controlled
-  markers, ball icon) and real broadcast camera will differ. Path: record a
-  session, run `tools/calibrate.py`, check the replay viewer with `G` (debug),
-  annotate ~300–1000 frames, retrain the detector, rerun
-  `fctac.benchmark.run_all`.
+* **Real FC 27 footage so far = one official EA livestream** (3 matches, 2v2
+  co-op, 1080p60, broadcast webcams; YouTube downloads are blocked from the
+  development server). The radar reader, calibration and player detector are
+  now trained or measured on it (match 3 held out), see
+  [REAL_FC27.md](REAL_FC27.md). Not yet seen: **your 1440p screen**, single
+  player vs CPU, online 1v1, other camera settings, night or snow matches.
+  `scripts/train_my_games.bat` fine-tunes on your own recordings.
+* Real-footage metrics are **label-free** (consistency: plausible player
+  counts, symbols persisting between frames, radar↔view registration error)
+  plus visual checks. There is no hand-labelled FC 27 ground truth yet. The
+  synthetic numbers are exact but come from rendered data.
 * **Windows-only code was not executed** (development ran in a Linux
   container): `fctac/overlay/win32.py` (layered overlay), `fctac/capture/windows.py`
   (WGC/DXGI/MSS), hotkeys, `tools/inspect_machine.py` Windows branches,
@@ -26,11 +30,18 @@ to fix each.
 
 ## Perception
 
-* **Radar colours.** Auto-detection struggles when a team's radar colour is
-  close to the ball's (white) or to the controlled marker, or has low contrast
-  with the radar background. Set `radar.color_us`/`color_them` explicitly in
-  the config in that case. On the white-kit synthetic clip, possession accuracy
-  dropped to ~0.69 (vs ~0.88).
+* **FC 27 radar.** Teams are read by shape (triangles vs circles), so kit
+  colours don't matter. Controlled-player highlights are found about half the
+  time (synthetic recall ~0.55), and the tracker smooths over the gaps.
+  Overlapping symbols in tight duels can merge (exactly 11 + 11 symbols are
+  read in ~29 % of real radar frames, 20–22 in ~84 %). When the radar is
+  faded (action behind it, set pieces) it is read less reliably.
+* **Which team is yours** is decided from the highlighted player when only
+  one team shows a highlight (vs CPU). In online 1v1 or co-op both teams show
+  highlights; press F7 if the assistant advises the wrong team, or set
+  `radar.us_shape` to `triangle`/`circle`.
+* **Old colour radar reader** (`radar.mode = "color"`) is only for the
+  synthetic renderer. It fails on the real FC 27 radar.
 * **Ball height is unknown.** Lofted balls are tracked from the radar; the
   main-view ball is only fused when it agrees with the radar.
 * **Tight duels.** ID switches happen when two players overlap on the radar

@@ -1,0 +1,20 @@
+{
+ "input": [
+  192,
+  320
+ ],
+ "stride": 2,
+ "channels": [
+  "triangle",
+  "circle",
+  "ball",
+  "highlight"
+ ],
+ "thr": 0.35,
+ "train_synth": [
+  "data/radar/synth"
+ ],
+ "train_real": [
+  "data/radar/real_pseudo"
+ ]
+}

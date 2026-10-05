@@ -81,14 +81,16 @@ def evaluate_on_labels(detector, paths: list[str], gate_frac: float = 0.02) -> d
     br = btp / max(btp + bfn, 1)
     f1 = 2 * pp * pr / max(pp + pr, 1e-9)
     ctrl = ctrl_ok / max(ctrl_n, 1)
+    # composite used for deployment: players matter most, but a detector that cannot
+    # find the ball or the controlled player is not an upgrade.  Without controlled
+    # labels (e.g. auto-labelled real footage) the score is renormalised over f1 + ball.
+    score = 0.5 * f1 + 0.25 * br + 0.25 * ctrl if ctrl_n else (0.5 * f1 + 0.25 * br) / 0.75
     return {
-        # composite used for deployment: players matter most, but a detector that
-        # cannot find the ball or the controlled player is not an upgrade
-        "det_score": round(0.5 * f1 + 0.25 * br + 0.25 * ctrl, 4),
+        "det_score": round(score, 4),
         "player_precision": round(pp, 4), "player_recall": round(pr, 4),
         "f1": round(f1, 4),
         "ball_precision": round(bp, 4), "ball_recall": round(br, 4),
-        "controlled_acc": round(ctrl_ok / max(ctrl_n, 1), 4),
+        "controlled_acc": round(ctrl_ok / max(ctrl_n, 1), 4) if ctrl_n else None,
         "foot_err_px": round(float(np.mean(err)), 2) if err else None,
         "ms_mean": round(float(np.mean(ms)), 2) if ms else None, "images": len(paths),
     }

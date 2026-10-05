@@ -207,7 +207,24 @@ class LayeredOverlay:
 EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
 
+NOT_GAME = ("tactical preview", "overlay", " - youtube", "google chrome", "mozilla firefox", "microsoft edge",
+            "opera", "brave", "discord", "obs ", "visual studio", "explorer", "notepad", "twitch")
+
+
+def _title_rank(title: str, title_substrings) -> int:
+    """0 = exact game title, 1 = game title with extras, -1 = not the game."""
+    t = title.lower().strip()
+    if any(x in t for x in NOT_GAME):
+        return -1
+    exact = {s.lower() for s in title_substrings} | {"ea sports fc 27", "ea sports fc\u2122 27", "fc 27"}
+    if t in exact:
+        return 0
+    return 1 if any(s.lower() in t for s in title_substrings) else -1
+
+
 def find_window(title_substrings=("FC 27", "FC27", "FC 26", "FC 25")) -> int | None:
+    """The game window: an exact game title wins over windows that merely contain it;
+    browsers, chat apps and this assistant's own windows are never picked."""
     found = []
 
     def cb(hwnd, _):
@@ -218,13 +235,13 @@ def find_window(title_substrings=("FC 27", "FC27", "FC 26", "FC 25")) -> int | N
             return True
         buf = ctypes.create_unicode_buffer(n + 1)
         user32.GetWindowTextW(hwnd, buf, n + 1)
-        if any(s.lower() in buf.value.lower() for s in title_substrings):
-            found.append(hwnd)
-            return False
+        r = _title_rank(buf.value, title_substrings)
+        if r >= 0:
+            found.append((r, hwnd))
         return True
 
     user32.EnumWindows(EnumWindowsProc(cb), 0)
-    return found[0] if found else None
+    return min(found)[1] if found else None
 
 
 def frame_bounds(hwnd) -> tuple[int, int, int, int]:

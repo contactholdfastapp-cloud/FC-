@@ -42,6 +42,7 @@ class RadarConfig:
     fc27_model: str = "registry"                    # radar model for mode "fc27": "registry" or a path
     us_shape: str = "auto"                          # FC 27: which radar shape is your team: auto | triangle | circle
     auto_align: bool = True                         # FC 27: refine the panel position from the first radar frames
+    highlight_thr: float = 0.25                     # FC 27: min highlight score of the top symbol of your team
 
 
 def panel_px(panel: tuple, w: int, h: int) -> tuple[int, int, int, int]:

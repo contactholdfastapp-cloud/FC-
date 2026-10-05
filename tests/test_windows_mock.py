@@ -155,3 +155,12 @@ def test_hotkeys_poll(fake_windows):
     import fctac.live as live
     hk = live.Hotkeys()
     assert hk.ok and not hk.pressed("F8")
+
+
+def test_game_window_title_ranking(fake_windows):
+    win32 = importlib.import_module("fctac.overlay.win32")
+    subs = ("FC 27", "FC27")
+    assert win32._title_rank("EA SPORTS FC 27", subs) == 0
+    assert win32._title_rank("EA SPORTS FC 27 Ultimate Team", subs) == 1
+    for t in ("FC 27 tips - YouTube - Google Chrome", "FC27 tactical preview", "Discord | #fc27", "Notepad"):
+        assert win32._title_rank(t, subs) == -1

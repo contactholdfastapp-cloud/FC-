@@ -111,6 +111,7 @@ class VisionAnalyzer:
         self.n = 0
         self.last_dets: list = []
         self._radar_gen = getattr(self.radar, "generation", 0)
+        self._reg_fails = 0          # consecutive detection frames where radar registration found nothing
 
     def _team_assignment_changed(self):
         """The radar's "your team" flipped (auto decision or F7): team-dependent state is stale."""
@@ -194,6 +195,13 @@ class VisionAnalyzer:
                 H, cconf = self.calib.H, self.calib.conf
             elif radar is not None and radar.ok and detected:
                 H, cconf = self.calib.update(players, radar.points, radar.teams, w, h, radar.ball)
+                self._reg_fails = 0 if self.calib.last_matches else self._reg_fails + 1
+                if self._line_mode and self._reg_fails >= 10 and self._reg_fails % max(1, self.calib.cfg.init_every) == 0:
+                    # line tracking can hold a confident but wrong lock: re-acquire from the radar
+                    if self.calib.reacquire(players, radar.points, radar.teams, w, h, radar.ball):
+                        H, cconf = self.calib.H, self.calib.conf
+                        self._line_mode = False
+                        self._reg_fails = 0
                 if cconf >= 0.5:
                     # detections registered to radar dots inherit the radar's team label
                     for di, ri in self.calib.last_matches:
