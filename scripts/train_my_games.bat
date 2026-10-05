@@ -30,9 +30,20 @@ if errorlevel 1 (
 )
 
 :train
+python -c "import onnx" 2>nul
+if errorlevel 1 pip install onnx
 python -c "import torch; print('Training on', 'GRAPHICS CARD: ' + torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'processor (no CUDA graphics card found - this will be slower)')"
 python tools\train_on_my_games.py %*
+if errorlevel 1 goto :failed
 echo.
 echo Finished. New models are only switched on if they measured better.
 echo Send these two files to Claude: data\my_games\summary.json and data\my_games\radar_qa.jpg
 pause
+exit /b 0
+
+:failed
+echo.
+echo ===== TRAINING FAILED - nothing was changed, the assistant still uses its current models =====
+echo Send these two files to Claude: data\my_games\summary.json and data\my_games\train_log.txt
+pause
+exit /b 1

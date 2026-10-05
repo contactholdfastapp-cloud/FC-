@@ -33,11 +33,26 @@ sys.path.insert(0, ROOT)
 PY = sys.executable
 
 
-def run(args: list, **kw):
-    print(">>", " ".join(str(a) for a in args), flush=True)
-    r = subprocess.run([PY] + [str(a) for a in args], cwd=ROOT, **kw)
-    if r.returncode:
-        raise SystemExit(f"step failed ({r.returncode}): {' '.join(map(str, args))}")
+LOG = None                                   # data/my_games/train_log.txt (everything the steps print)
+
+
+def say(*parts):
+    line = " ".join(str(p) for p in parts)
+    print(line, flush=True)
+    if LOG:
+        LOG.write(line + "\n")
+        LOG.flush()
+
+
+def run(args: list):
+    say(">>", " ".join(str(a) for a in args))
+    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
+    p = subprocess.Popen([PY] + [str(a) for a in args], cwd=ROOT, env=env, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
+    for line in p.stdout:                    # show it and keep it in the log
+        say(line.rstrip("\n"))
+    if p.wait():
+        raise SystemExit(f"step failed ({p.returncode}): {' '.join(map(str, args))}")
 
 
 def _safe_name(path: str) -> str:
@@ -110,6 +125,25 @@ def radar_score(m: dict) -> float:
 
 
 def main():
+    global LOG
+    work = os.path.join(ROOT, "data", "my_games")
+    os.makedirs(work, exist_ok=True)
+    LOG = open(os.path.join(work, "train_log.txt"), "a", encoding="utf-8")
+    try:
+        train()
+    except BaseException as e:               # leave a readable note for the user to send
+        import traceback
+        msg = str(e) if isinstance(e, SystemExit) else traceback.format_exc()
+        if isinstance(e, KeyboardInterrupt):
+            msg = "stopped by the user (window closed or Ctrl+C)"
+        say("\nTRAINING FAILED:", msg)
+        with open(os.path.join(work, "summary.json"), "w") as f:
+            json.dump({"verdict": ["training FAILED - nothing was changed, the current models are still used"],
+                       "error": msg[-3000:], "log": "data/my_games/train_log.txt"}, f, indent=1)
+        sys.exit(1)
+
+
+def train():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("videos", nargs="*", help="recordings (none: a file picker opens)")
     ap.add_argument("--work", default="data/my_games")
@@ -153,7 +187,7 @@ def main():
         same = {g[:-5] if g.endswith("_held") else g for g in groups} == set(names) \
             and any(g.endswith("_held") for g in groups) == single
         if not same:
-            print("new set of videos -> harvesting again", flush=True)
+            say("new set of videos -> harvesting again")
             shutil.rmtree(harvest)
     if not os.path.exists(idx):
         # read the videos where they are (no copy: they may be on another, bigger drive)
@@ -191,7 +225,7 @@ def main():
         mo, mn = json.load(open(rep_old)), json.load(open(rep_new))
         so, sn = radar_score(mo), radar_score(mn)
         if not mn.get("panel_crops"):
-            print("not enough held-out radar footage to compare -> keeping the current radar model", flush=True)
+            say("not enough held-out radar footage to compare -> keeping the current radar model")
             sn = so = 0.0
         metrics = {**{f"real_{k}": v for k, v in mn.items() if isinstance(v, (int, float))}, "radar_score": round(sn, 4)}
         if a.dry_run:
@@ -201,7 +235,7 @@ def main():
                                     data=",".join(vids), extra_files=(".json", ".pt"), better=sn > so)
             summary["radar"] = {"current": round(so, 4), "new": round(sn, 4), "version": e["version"],
                                 "switched_on": e["deployed"]}
-        print("radar:", summary["radar"], flush=True)
+        say("radar:", summary["radar"])
 
     # 3. player detector
     if not a.skip_detector:
@@ -250,7 +284,7 @@ def main():
             e = Registry().register("detector", new_path, mn, primary="det_score", data=",".join(vids),
                                     extra_files=(".json", ".pt"), better=mn["det_score"] > best_old)
             summary["detector"].update(version=e["version"], switched_on=e["deployed"])
-        print("detector:", summary["detector"], flush=True)
+        say("detector:", summary["detector"])
 
     verdict = []
     for k, label in (("radar", "radar reader"), ("detector", "player detector")):
@@ -262,7 +296,7 @@ def main():
     summary["verdict"] = verdict
     with open(os.path.join(work, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
-    print("\nDONE.", json.dumps(summary, indent=1))
+    say("\nDONE.", json.dumps(summary, indent=1))
 
 
 if __name__ == "__main__":

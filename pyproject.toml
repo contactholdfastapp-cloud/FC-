@@ -18,7 +18,7 @@ dependencies = [
 # learned-model inference (vision CNN). Use onnxruntime-gpu or onnxruntime-directml on Windows.
 infer = ["onnxruntime>=1.16"]
 # training only, never needed at runtime
-train = ["torch>=2.1"]
+train = ["torch>=2.1", "onnx>=1.14"]
 # live capture on Windows (pick one; see docs)
 win = ["windows-capture>=1.4", "dxcam>=0.0.5"]
 dev = ["pytest>=7"]
