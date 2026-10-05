@@ -35,6 +35,7 @@ class CalibConfig:
     cam_pos: tuple = (52.5, -40.0, 20.0)   # typical broadcast camera for the init search
     hold_conf_decay: float = 0.93    # confidence decay per frame while coasting
     line_tracking: bool = True       # keep the homography alive from pitch lines when radar registration fails
+    offpitch_margin_m: float = 2.0   # detections projected further outside the pitch are dropped
 
 
 class RadarViewCalibrator:

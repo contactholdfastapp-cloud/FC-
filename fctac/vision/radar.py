@@ -35,6 +35,25 @@ class RadarConfig:
     color_tol: float = 32.0                         # Lab distance for dot colour membership
     min_dots: int = 10
     dot_area_px: float = 0.0                        # single-dot area; 0 = estimate online
+    # Real FC 27 radar (2D, default HUD): the dark pitch panel, normalised
+    # screen coords, measured on 1080p broadcast footage (813-1104 x 865-1025 px).
+    panel: tuple = (0.4234, 0.8009, 0.5750, 0.9491)
+    mode: str = "color"                             # "color" (dot radar, synthetic) | "fc27" (learned reader)
+    fc27_model: str = "registry"                    # radar model for mode "fc27": "registry" or a path
+    us_shape: str = "auto"                          # FC 27: which radar shape is your team: auto | triangle | circle
+    auto_align: bool = True                         # FC 27: refine the panel position from the first radar frames
+
+
+def panel_px(panel: tuple, w: int, h: int) -> tuple[int, int, int, int]:
+    """Radar pitch panel in pixels (x0, y0, x1, y1)."""
+    return (int(round(panel[0] * w)), int(round(panel[1] * h)), int(round(panel[2] * w)), int(round(panel[3] * h)))
+
+
+def radar_crop_rect(panel: tuple, w: int, h: int, margin: float = 0.10) -> tuple[int, int, int, int]:
+    """Panel plus a margin (fraction of the panel width) on every side, clipped to the frame."""
+    x0, y0, x1, y1 = panel_px(panel, w, h)
+    m = int(round(margin * (x1 - x0)))
+    return max(0, x0 - m), max(0, y0 - m), min(w, x1 + m), min(h, y1 + m)
 
 
 @dataclass

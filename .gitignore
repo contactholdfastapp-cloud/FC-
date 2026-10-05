@@ -20,3 +20,5 @@ models/trt_cache/
 runs/
 benchmarks/*.json
 !benchmarks/.keep
+data/real/
+data/radar/

@@ -58,6 +58,19 @@ def make_predictor(cfg: AppConfig):
     return LearnedPredictor(path)
 
 
+def make_radar(cfg: AppConfig):
+    """FC 27 learned radar reader (mode "fc27"), else the colour/dot reader."""
+    if not cfg.radar.enabled:
+        return None
+    if cfg.radar.mode == "fc27":
+        try:
+            from fctac.vision.radar_fc27 import FC27RadarReader
+            return FC27RadarReader(cfg.radar)
+        except (FileNotFoundError, ImportError) as e:
+            print(f"FC 27 radar model unavailable ({e}); using the colour radar reader")
+    return RadarReader(cfg.radar)
+
+
 def make_detector(cfg: AppConfig):
     if cfg.runtime.detector == "onnx":
         from fctac.vision.learned import OnnxDetector
@@ -81,7 +94,7 @@ class VisionAnalyzer:
 
     def _build(self):
         c = self.cfg
-        self.radar = RadarReader(c.radar) if c.radar.enabled else None
+        self.radar = make_radar(c)
         self.detector = make_detector(c)
         self.calib = RadarViewCalibrator(c.calib)
         if self.manual_H is not None:
@@ -188,6 +201,13 @@ class VisionAnalyzer:
                 if radar is not None and radar.ok and self.calib.last_rmse < 1.5 and cconf >= 0.5 and detected \
                         and self.calib.fails == 0 and len(self.calib.last_matches) >= 8:
                     self._line_mode = False      # radar registration healthy again
+        if H is not None and cconf >= 0.5 and dets:
+            # people/objects off the pitch (stewards, photographers, ad boards) are not players
+            pts = np.array([[d.x, d.y] for d in dets])
+            pp = apply_h(H, pts)
+            m = self.cfg.calib.offpitch_margin_m
+            keep = (pp[:, 0] > -m) & (pp[:, 0] < 105 + m) & (pp[:, 1] > -m) & (pp[:, 1] < 68 + m)
+            dets = [d for d, k in zip(dets, keep) if k or d.cls == T.CLS_BALL]
         with tm.stage("track"):
             tracks = self.tracker.step(t, radar, dets, H, cconf)
         with tm.stage("state"):

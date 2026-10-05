@@ -2,6 +2,12 @@
 
     python tools/train_detector.py --data data/datasets/fc27 --epochs 60 --device cuda
     python tools/train_detector.py --data data/datasets/synth --epochs 5 --device cpu   (pipeline check)
+    python tools/train_detector.py --train-dirs data/datasets/real/m1 data/datasets/real/m2 \
+        --val-dirs data/datasets/real/m3 --extra-train data/datasets/synth --init runs/detector/exp/best.pt
+
+Labels may contain ``{"cls": "ignore", "x", "y", "r"}`` objects and an
+``ignore_rects`` list (normalised x0, y0, x1, y1): the loss is switched off
+there (unsure pseudo-labels, broadcast overlays).
 
 Splits come from fctac.training.det_dataset (segment-level, no leakage).
 The exported model is evaluated on the val split with the same metrics as the
@@ -67,8 +73,24 @@ class DetDataset(Dataset):
         off = np.zeros((2, Ho, Wo), np.float32)
         hgt = np.zeros((1, Ho, Wo), np.float32)
         mask = np.zeros((1, Ho, Wo), np.float32)
+        weight = np.ones((1, Ho, Wo), np.float32)
         yy, xx = np.mgrid[0:Ho, 0:Wo]
+        for r in lab.get("ignore_rects", []):
+            x0, y0, x1, y1 = r[0] * w * s / STRIDE, r[1] * h * s / STRIDE, r[2] * w * s / STRIDE, r[3] * h * s / STRIDE
+            if flip:
+                x0, x1 = Wo - x1, Wo - x0
+            weight[0, max(0, int(y0)):max(0, int(np.ceil(y1))), max(0, int(x0)):max(0, int(np.ceil(x1)))] = 0.0
         for o in objs:
+            if o["cls"] != "ignore":
+                continue
+            cx = o["x"] * s
+            if flip:
+                cx = self.in_w - 1 - cx
+            rr = max(1.0, o.get("r", 20.0) * s / STRIDE)
+            weight[0][((xx - cx / STRIDE) ** 2 + (yy - o["y"] * s / STRIDE) ** 2) <= rr * rr] = 0.0
+        for o in objs:
+            if o["cls"] == "ignore":
+                continue
             cx = o["x"] * s
             if flip:
                 cx = self.in_w - 1 - cx
@@ -98,7 +120,8 @@ class DetDataset(Dataset):
                 hgt[0, iy, ix] = np.log(ph)
             mask[0, iy, ix] = 1.0
         t = torch.from_numpy(x.transpose(2, 0, 1).astype(np.float32) / 255.0)
-        return t, torch.from_numpy(hm), torch.from_numpy(off), torch.from_numpy(hgt), torch.from_numpy(mask)
+        return (t, torch.from_numpy(hm), torch.from_numpy(off), torch.from_numpy(hgt), torch.from_numpy(mask),
+                torch.from_numpy(weight))
 
 
 def export(model, args, out_dir, val_focal=None):
@@ -116,8 +139,25 @@ def export(model, args, out_dir, val_focal=None):
     return onnx_path
 
 
+def dir_images(dirs) -> list:
+    from fctac.training.det_dataset import list_images
+    out = []
+    for d in dirs or []:
+        out += list_images(d)
+    return out
+
+
 def train(args):
-    splits = make_splits(args.data)
+    if args.train_dirs:
+        splits = {"train": dir_images(args.train_dirs), "val": dir_images(args.val_dirs), "test": []}
+    else:
+        splits = make_splits(args.data)
+    if args.extra_train:
+        extra = []
+        for d in args.extra_train:
+            extra += [p for p in open(os.path.join(d, "train.txt")).read().split() if p] \
+                if os.path.exists(os.path.join(d, "train.txt")) else dir_images([d])
+        splits["train"] = splits["train"] + extra
     out_dir = os.path.join("runs", "detector", args.name)
     if args.export_only:
         model = TinyCenterNet(args.model_width)
@@ -129,6 +169,8 @@ def train(args):
     vl = DataLoader(va, batch_size=args.batch, shuffle=False, num_workers=args.workers)
     dev = torch.device(args.device)
     model = TinyCenterNet(args.model_width).to(dev)
+    if args.init:
+        model.load_state_dict(torch.load(args.init, map_location="cpu"))
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=max(1, args.epochs * len(dl)))
     os.makedirs(out_dir, exist_ok=True)
@@ -137,11 +179,11 @@ def train(args):
         model.train()
         t0 = time.time()
         tl = 0.0
-        for x, hm, off, hgt, m in dl:
-            x, hm, off, hgt, m = x.to(dev), hm.to(dev), off.to(dev), hgt.to(dev), m.to(dev)
+        for x, hm, off, hgt, m, wt in dl:
+            x, hm, off, hgt, m, wt = x.to(dev), hm.to(dev), off.to(dev), hgt.to(dev), m.to(dev), wt.to(dev)
             phm, poff, phgt = model(x)
             n = m.sum().clamp(min=1)
-            loss = focal_loss(phm, hm) + (torch.abs(poff - off) * m).sum() / n \
+            loss = focal_loss(phm, hm, wt) + (torch.abs(poff - off) * m).sum() / n \
                 + 0.2 * (torch.abs(phgt - hgt) * (hgt > 0)).sum() / (hgt > 0).sum().clamp(min=1)
             opt.zero_grad()
             loss.backward()
@@ -151,9 +193,9 @@ def train(args):
         model.eval()
         vloss = 0.0
         with torch.no_grad():
-            for x, hm, off, hgt, m in vl:
+            for x, hm, off, hgt, m, wt in vl:
                 phm, poff, phgt = model(x.to(dev))
-                vloss += float(focal_loss(phm, hm.to(dev)))
+                vloss += float(focal_loss(phm, hm.to(dev), wt.to(dev)))
         vloss /= max(len(vl), 1)
         print(f"epoch {ep + 1}/{args.epochs} train {tl / max(len(dl), 1):.3f} val {vloss:.3f} ({time.time() - t0:.0f}s)")
         if vloss < best[0]:
@@ -165,7 +207,11 @@ def train(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", required=True)
+    ap.add_argument("--data", default="", help="dataset root (hash split by 30 s segments)")
+    ap.add_argument("--train-dirs", nargs="*", default=[], help="explicit train roots (e.g. per match)")
+    ap.add_argument("--val-dirs", nargs="*", default=[], help="explicit val roots (held-out match)")
+    ap.add_argument("--extra-train", nargs="*", default=[], help="more train data (e.g. synthetic) mixed in")
+    ap.add_argument("--init", default="", help="start from a checkpoint (.pt)")
     ap.add_argument("--name", default="exp")
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch", type=int, default=16)
@@ -186,7 +232,8 @@ def main():
     m = evaluate_onnx_on_labels(onnx_path, splits["val"])
     print("val metrics", json.dumps(m))
     reg = Registry()
-    entry = reg.register("detector", onnx_path, m, primary="det_score", data=a.data)
+    entry = reg.register("detector", onnx_path, m, primary="det_score",
+                         data=a.data or ",".join(a.train_dirs + a.extra_train))
     print("registered", entry["version"], "deployed" if entry["deployed"] else "(not deployed: not better than current)")
 
 

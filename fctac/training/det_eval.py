@@ -11,19 +11,35 @@ from fctac import types as T
 from fctac.training.det_dataset import load_label
 
 
+def _ignored(x, y, lab, w, h) -> bool:
+    for o in lab["objects"]:
+        if o["cls"] == "ignore" and (x - o["x"]) ** 2 + (y - o["y"]) ** 2 <= o.get("r", 20.0) ** 2:
+            return True
+    for r in lab.get("ignore_rects", []):
+        if r[0] * w <= x <= r[2] * w and r[1] * h <= y <= r[3] * h:
+            return True
+    return False
+
+
 def evaluate_on_labels(detector, paths: list[str], gate_frac: float = 0.02) -> dict:
+    """Players: Hungarian matching within 2 % of the image width.  Detections in
+    ignore regions are neither TP nor FP.  Controlled players: with one labelled
+    controlled player, correct = that player and only it flagged; with several
+    (co-op / both teams' humans), hits / (labelled + false flags)."""
     tp = fp = fn = 0
     btp = bfp = bfn = 0
-    ctrl_ok, ctrl_n = 0, 0
+    ctrl_ok, ctrl_n = 0.0, 0
     err, ms = [], []
     for p in paths:
         img = cv2.imread(p)
         lab = load_label(p)
         w = lab["width"]
+        hh = lab.get("height", img.shape[0])
         gate = gate_frac * w
         t0 = time.perf_counter()
         dets = detector.detect(img, None)
         ms.append((time.perf_counter() - t0) * 1000)
+        dets = [d for d in dets if not _ignored(d.x, d.y, lab, w, hh)]
         gp = [o for o in lab["objects"] if o["cls"] in ("player", "referee")]
         dp = [d for d in dets if d.cls == T.CLS_PLAYER]
         if gp and dp:
@@ -35,10 +51,17 @@ def evaluate_on_labels(detector, paths: list[str], gate_frac: float = 0.02) -> d
             fn += len(gp) - int(ok.sum())
             err += list(D[a, b][ok])
             gc = [j for j, o in enumerate(gp) if o.get("controlled")]
-            if gc:
+            if len(gc) == 1:
                 ctrl_n += 1
                 hit = [dp[i] for i, j in zip(a[ok], b[ok]) if j == gc[0]]
                 ctrl_ok += int(bool(hit) and hit[0].controlled and sum(d.controlled for d in dp) == 1)
+            elif gc:
+                pair = {int(j): int(i) for i, j in zip(a[ok], b[ok])}
+                hits = sum(1 for j in gc if j in pair and dp[pair[j]].controlled)
+                false_flags = sum(1 for i, d in enumerate(dp) if d.controlled
+                                  and not any(pair.get(j) == i for j in gc))
+                ctrl_n += 1
+                ctrl_ok += hits / max(len(gc) + false_flags, 1)
         else:
             fp += len(dp)
             fn += len(gp)

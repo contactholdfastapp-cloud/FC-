@@ -65,12 +65,19 @@ class TinyCenterNet(nn.Module):
         return torch.sigmoid(self.hm(h)), self.off(h), self.hgt(h)
 
 
-def focal_loss(pred, gt, eps=1e-6):
-    """CenterNet penalty-reduced focal loss on gaussian heatmaps."""
+def focal_loss(pred, gt, weight=None, eps=1e-6):
+    """CenterNet penalty-reduced focal loss on gaussian heatmaps.
+
+    ``weight`` (broadcastable to pred) zeroes the loss in "ignore" regions
+    (e.g. unsure pseudo-labels, broadcast overlays)."""
     pos = gt.eq(1).float()
     neg = 1.0 - pos
     pred = pred.clamp(eps, 1 - eps)
     pos_loss = torch.log(pred) * (1 - pred) ** 2 * pos
     neg_loss = torch.log(1 - pred) * pred ** 2 * (1 - gt) ** 4 * neg
+    if weight is not None:
+        pos_loss = pos_loss * weight
+        neg_loss = neg_loss * weight
+        pos = pos * weight
     n = pos.sum().clamp(min=1.0)
     return -(pos_loss.sum() + neg_loss.sum()) / n

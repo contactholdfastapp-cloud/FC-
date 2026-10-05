@@ -10,8 +10,9 @@ analysis loop always takes the newest frame, so stale frames are dropped and
 never queued.  Latency is measured per frame from frame availability to
 overlay presentation.
 
-Hotkeys (Windows, read-only key state): F8 toggle overlay, F9 debug panel,
-F10 quit.  The assistant never sends input to the game.
+Hotkeys (Windows, read-only key state): F7 swap which radar team is yours
+(FC 27 radar), F8 toggle overlay, F9 debug panel, F10 quit.  The assistant
+never sends input to the game.
 """
 from __future__ import annotations
 
@@ -92,7 +93,7 @@ class Win32Presenter:
 
 
 class Hotkeys:
-    VK = {"F8": 0x77, "F9": 0x78, "F10": 0x79}
+    VK = {"F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79}
 
     def __init__(self):
         self.ok = sys.platform == "win32"
@@ -137,6 +138,10 @@ class LiveRuntime:
         for k in ("radar", "detect", "calib", "track", "state", "decision"):
             if k in fa.timings_ms:
                 lines.append(f"  {k:<8s} {fa.timings_ms[k]:5.2f} ms")
+        rd = getattr(self.an, "radar", None)
+        if hasattr(rd, "us_shape"):
+            you = {0: "triangles", 1: "circles"}.get(rd.us_shape, "not decided yet")
+            lines.append(f"radar: your team = {you}  (F7 swaps), position {getattr(rd, 'align_status', '-')}")
         if self.sysmon is not None:
             lines.append(self.sysmon.line())
         st = fa.state
@@ -167,6 +172,8 @@ class LiveRuntime:
                     self.show_overlay = not self.show_overlay
                 if self.keys.pressed("F9"):
                     self.cfg.overlay.show_debug = not self.cfg.overlay.show_debug
+                if self.keys.pressed("F7") and hasattr(getattr(self.an, "radar", None), "swap"):
+                    self.an.radar.swap()
                 f = src.buffer.get(last_id, timeout=0.5)
                 if f is None:
                     if src.error:
@@ -268,7 +275,7 @@ def main(argv=None):
     mon = SysMonitor().start()
     rt = LiveRuntime(cfg, src, presenter, an, sysmon=mon)
     print(f"FC27 assistant running (capture: {getattr(src, 'name', '?')}). "
-          "F8 = overlay on/off, F9 = debug info, F10 = quit.", flush=True)
+          "F7 = swap your radar team, F8 = overlay on/off, F9 = debug info, F10 = quit.", flush=True)
     rep = rt.run(a.seconds)
     rep["system"] = mon.latest
     mon.stop()
