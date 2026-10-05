@@ -31,8 +31,10 @@ class TrackerConfig:
     max_missed_s: float = 0.6
     q_player: float = 8.0
     q_ball: float = 25.0
-    ctrl_alpha: float = 0.35          # EMA rate of controlled evidence
-    ctrl_switch_margin: float = 0.15
+    ctrl_alpha: float = 0.2           # EMA rate of controlled evidence
+    ctrl_switch_margin: float = 0.2
+    ctrl_switch_s: float = 0.25       # a new controlled player must lead this long before we switch
+    ctrl_keep_s: float = 1.0          # keep the current one this long without any evidence
     ball_gate_m: float = 4.0
     ball_reinit_after: int = 6
 
@@ -139,8 +141,9 @@ class Tracker:
                 tr.last_seen_t = t
                 if players[mi].team in (T.TEAM_US, T.TEAM_THEM):
                     tr.team_votes[players[mi].team] += 0.5
-                if players[mi].controlled:
-                    ctrl_evidence[tr.id] = max(ctrl_evidence.get(tr.id, 0.0), 1.0)
+                if players[mi].controlled and (radar is None or not radar.ok or radar.controlled is None):
+                    # main-view marker only when the radar has no highlight this frame (weaker evidence)
+                    ctrl_evidence[tr.id] = max(ctrl_evidence.get(tr.id, 0.0), 0.6)
             if radar is None or not radar.ok:
                 used = {mi for _, mi in matched}
                 for mi in range(len(players)):
@@ -174,7 +177,7 @@ class Tracker:
             tr.prev_vel = v.copy()
             if tr.team_votes.sum() > 0:
                 tr.team = int(np.argmax(tr.team_votes))
-        self._controlled(ctrl_evidence)
+        self._controlled(ctrl_evidence, t)
         self.ball.conf = float(np.exp(-max(0.0, t - self.ball.last_seen_t) / 0.4)) if self.ball.kf is not None else 0.0
         return self.tracks
 
@@ -215,18 +218,34 @@ class Tracker:
             b.kf.update(p, var)
         b.last_seen_t = t
 
-    def _controlled(self, ev: dict):
-        a = self.cfg.ctrl_alpha
-        for tr in self.tracks:
-            if tr.id in ev:
-                tr.ctrl = (1 - a) * tr.ctrl + a * ev[tr.id]
-            elif ev:
-                tr.ctrl *= (1 - a)        # evidence went elsewhere this frame
+    def _controlled(self, ev: dict, t: float = 0.0):
+        """Controlled player with hysteresis: noisy per-frame highlights must not make the
+        advice jump between players (measured ~94 switches/min on real footage without it)."""
+        c = self.cfg
+        a = c.ctrl_alpha
+        if any(v > 0 for v in ev.values()):
+            for tr in self.tracks:
+                tr.ctrl = (1 - a) * tr.ctrl + a * ev.get(tr.id, 0.0)
         ours = [tr for tr in self.tracks if tr.team == T.TEAM_US]
+        if not hasattr(self, "_ctrl_cand"):
+            self._ctrl_cand, self._ctrl_since, self._ctrl_seen = None, t, t
         if not ours:
             self.controlled_id = None
             return
         best = max(ours, key=lambda tr: tr.ctrl)
         cur = next((tr for tr in ours if tr.id == self.controlled_id), None)
-        if cur is None or (best.id != cur.id and best.ctrl > cur.ctrl + self.cfg.ctrl_switch_margin):
-            self.controlled_id = best.id if best.ctrl > 0.2 else None
+        if cur is not None and cur.ctrl > 0.15:
+            self._ctrl_seen = t
+        if cur is None:
+            if best.ctrl > 0.25:
+                self.controlled_id, self._ctrl_seen = best.id, t
+            return
+        if best.id != cur.id and best.ctrl > cur.ctrl + c.ctrl_switch_margin:
+            if self._ctrl_cand != best.id:
+                self._ctrl_cand, self._ctrl_since = best.id, t
+            elif t - self._ctrl_since >= c.ctrl_switch_s:
+                self.controlled_id, self._ctrl_cand, self._ctrl_seen = best.id, None, t
+        else:
+            self._ctrl_cand = None
+        if t - self._ctrl_seen > c.ctrl_keep_s and best.ctrl < 0.15:
+            self.controlled_id = None

@@ -251,6 +251,9 @@ class VisionAnalyzer:
             self.predictor.annotate(st)
         with tm.stage("decision"):
             cands, rec = self.engine.decide(st)
+            if radar is not None and radar.ok and getattr(self.radar, "decided", True) is False:
+                # never advise a team we only guessed: wait for clear evidence or F7
+                rec = T.Recommendation(status=T.STATUS_ANALYSING, reason="which team is yours? press F7", since_t=t)
         tm.ms["total"] = sum(tm.ms.values())
         return T.FrameAnalysis(frame=idx, t=t, detections=dets, tracks=list(tracks), state=st,
                                candidates=cands, recommendation=rec, timings_ms=tm.ms)

@@ -177,6 +177,12 @@ class Action:
         """Identity of the action for temporal stabilisation."""
         return (self.kind, self.target_id)
 
+    @property
+    def shown_label(self) -> str:
+        """Target name for the screen: a position (ST, LB...), never an internal track id (P32)."""
+        lab = self.target_label or ""
+        return "" if (lab[:1] == "P" and lab[1:].isdigit()) else lab
+
     def text(self) -> str:
         if self.kind in (HOLD, DRIBBLE, PRESS, JOCKEY):
             return self.kind
@@ -184,8 +190,8 @@ class Action:
             place = self.detail.get("placement", "")
             return f"SHOOT {place}".strip()
         if self.kind == COVER:
-            return f"COVER {self.target_label}".strip()
-        return f"{self.kind} -> {self.target_label}" if self.target_label else self.kind
+            return f"COVER {self.shown_label}".strip()
+        return f"{self.kind} -> {self.shown_label}" if self.shown_label else self.kind
 
 
 STATUS_ACTIVE = "ACTIVE"

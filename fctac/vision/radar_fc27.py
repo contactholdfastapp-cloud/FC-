@@ -187,7 +187,8 @@ class FC27RadarReader:
         return self.us_shape if self.us_shape is not None else SHAPE_CIRCLE
 
     def swap(self):
-        self.us_shape = 1 - self.effective_us()
+        """F7: undecided -> triangles first; decided -> the other shape.  Locks the choice."""
+        self.us_shape = SHAPE_TRIANGLE if self.us_shape is None else 1 - self.us_shape
         self.fixed = True
         self.generation += 1
 
@@ -202,19 +203,28 @@ class FC27RadarReader:
         d["M"] = M
         return d
 
+    @property
+    def decided(self) -> bool:
+        return self.us_shape is not None
+
     def _update_team(self, d: dict):
-        if self.fixed:
+        """Your team = the shape whose controlled-player highlight clearly stands out.
+
+        Evidence accumulates only on frames where one shape's strongest highlight beats the
+        other's by a clear margin (vs the CPU only your team is highlighted).  The decision
+        needs ~1 s of consistent evidence and is then locked for the session (no flip-flopping;
+        F7 overrides).  If both teams keep showing highlights (online 1v1, co-op) it stays
+        undecided and the assistant asks for F7 instead of guessing."""
+        if self.fixed or self.us_shape is not None:
             return
-        hl = d["highlight"] >= d["hl_thr"]
-        has = [bool(np.any(hl & (d["shape"] == s))) for s in (SHAPE_TRIANGLE, SHAPE_CIRCLE)]
-        self.votes *= 0.995
-        if has[0] != has[1]:
-            self.votes[0 if has[0] else 1] += 1.0
-        if self.votes.max() >= 3.0:
-            new = int(np.argmax(self.votes))
-            if new != self.effective_us():
-                self.generation += 1
-            self.us_shape = new
+        top = [float(d["highlight"][d["shape"] == s].max()) if np.any(d["shape"] == s) else 0.0
+               for s in (SHAPE_TRIANGLE, SHAPE_CIRCLE)]
+        if max(top) >= 0.35 and abs(top[0] - top[1]) >= 0.25:
+            self.votes[int(np.argmax(top))] += 1.0
+        a, b = self.votes.max(), self.votes.min()
+        if a >= 30 and a >= 3.0 * b:
+            self.us_shape = int(np.argmax(self.votes))
+            self.generation += 1
 
     def _maybe_align(self, frame: np.ndarray, d: dict):
         """Collect ~10 radar-visible frames 0.5 s apart, then refine the panel in the background."""

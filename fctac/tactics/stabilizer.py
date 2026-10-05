@@ -21,8 +21,8 @@ from fctac import types as T
 
 @dataclass
 class StabilizerConfig:
-    min_hold_s: float = 0.40
-    confirm_n: int = 2
+    min_hold_s: float = 1.0               # real footage: shorter holds read as flicker
+    confirm_n: int = 3
     margin_abs_attack: float = 0.006      # goal units
     margin_rel_attack: float = 0.10
     margin_abs_defence: float = 0.10
@@ -71,8 +71,10 @@ class Stabilizer:
             self._accept(best, t)
         else:
             same = next((a for a in ranked if a.key() == self.current.key()), None)
-            closed = same is None or (same.kind in T.PASS_KINDS and same.p_success < cfg.invalidate_p)
-            if closed:
+            lane_closed = same is not None and same.kind in T.PASS_KINDS and same.p_success < cfg.invalidate_p
+            if same is None and t - self.since_t < cfg.min_hold_s and self.current.kind not in T.PASS_KINDS:
+                pass                              # keep showing it briefly; candidates jitter frame to frame
+            elif same is None or lane_closed:
                 self._accept(best, t)
             else:
                 self.current = same           # fresh geometry/score

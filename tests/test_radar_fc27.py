@@ -133,3 +133,24 @@ def test_deployed_radar_model_reads_synthetic(pool):
                      "ball": None if lab["ball"] is None else list(lab["ball"])})
     m = evaluate(onnx_predictor(e["path"], ["CPUExecutionProvider"]), rows)
     assert m["f1"] > 0.85 and m["shape_acc"] > 0.9
+
+
+def test_team_decision_needs_clear_evidence_and_locks():
+    from fctac.vision.radar_fc27 import FC27RadarReader
+    rd = FC27RadarReader.__new__(FC27RadarReader)
+    rd.us_shape, rd.fixed, rd.votes, rd.generation = None, False, np.zeros(2), 0
+
+    def frame(hl_tri, hl_cir):
+        return {"shape": np.array([0, 0, 1, 1]), "highlight": np.array([hl_tri, 0.0, hl_cir, 0.0]), "hl_thr": 0.35}
+
+    for _ in range(100):                    # online 1v1 / co-op: both teams highlighted -> never guess
+        rd._update_team(frame(0.8, 0.75))
+    assert not rd.decided
+    for _ in range(40):                     # vs CPU: only your team (triangles) highlighted
+        rd._update_team(frame(0.8, 0.0))
+    assert rd.decided and rd.us_shape == 0 and rd.generation == 1
+    for _ in range(200):                    # later noise must not flip it
+        rd._update_team(frame(0.0, 0.9))
+    assert rd.us_shape == 0 and rd.generation == 1
+    rd.swap()                               # F7 still overrides
+    assert rd.us_shape == 1 and rd.fixed

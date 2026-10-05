@@ -140,7 +140,7 @@ class LiveRuntime:
                 lines.append(f"  {k:<8s} {fa.timings_ms[k]:5.2f} ms")
         rd = getattr(self.an, "radar", None)
         if hasattr(rd, "us_shape"):
-            you = {0: "triangles", 1: "circles"}.get(rd.us_shape, "not decided yet")
+            you = {0: "triangles", 1: "circles"}.get(rd.us_shape, "not decided yet - press F7")
             lines.append(f"radar: your team = {you}  (F7 swaps), position {getattr(rd, 'align_status', '-')}")
         if self.sysmon is not None:
             lines.append(self.sysmon.line())

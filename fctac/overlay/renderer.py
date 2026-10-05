@@ -44,6 +44,7 @@ class OverlayConfig:
     scale: float = 1.0               # UI scale (1.0 tuned for 720p; scales with height automatically)
     min_draw_calib: float = 0.35     # below this the arrow is not drawn (label only)
     fade_in_s: float = 0.15          # a new recommendation fades in (starts at 55 % opacity)
+    hold_s: float = 0.5              # keep the last advice up through short gaps (no blinking)
 
 
 def _pt(p) -> tuple[int, int]:
@@ -208,8 +209,19 @@ class OverlayRenderer:
         c.clear()
         rec = fa.recommendation
         st = fa.state
-        H = self._H_att2img(st) if st is not None and st.calib_conf >= self.cfg.min_draw_calib else None
         if rec.status == T.STATUS_ACTIVE and rec.action is not None and st is not None and st.controlled is not None:
+            self._held = (rec, st.controlled_id, fa.t)
+        elif getattr(self, "_held", None) is not None:
+            hrec, hid, ht = self._held
+            if fa.t - ht <= self.cfg.hold_s and st is not None and st.controlled_id == hid \
+                    and rec.reason != "which team is yours? press F7":
+                rec = hrec                       # short gap: keep the same advice on screen
+            else:
+                self._held = None
+        H = self._H_att2img(st) if st is not None and st.calib_conf >= self.cfg.min_draw_calib else None
+        self.shown = None                       # text of the advice on screen this frame (tests/metrics)
+        if rec.status == T.STATUS_ACTIVE and rec.action is not None and st is not None and st.controlled is not None:
+            self.shown = rec.action.text()
             if H is not None:
                 if self.cfg.show_secondary and rec.alternatives:
                     self._draw_action(st, H, rec.alternatives[0], secondary=True)
@@ -227,8 +239,12 @@ class OverlayRenderer:
                 cv2.convertScaleAbs(roi, dst=roi, alpha=f)     # premultiplied: uniform opacity scale
         else:
             self._last_key = None
-            if rec.status == T.STATUS_ANALYSING and self.cfg.show_analysing:
-                k = self.k
+            k = self.k
+            if rec.reason == "which team is yours? press F7":
+                msg = "Which team are you?  Press F7"
+                c.rect(c.w // 2 - int(150 * k), int(30 * k), c.w // 2 + int(150 * k), int(62 * k), (10, 10, 10), 160)
+                c.text(msg, (c.w // 2 - int(138 * k), int(53 * k)), 0.65 * k, NEUTRAL, max(1, int(2 * k)), 255)
+            elif rec.status == T.STATUS_ANALYSING and self.cfg.show_analysing:
                 c.text("ANALYSING", (c.w // 2 - int(60 * k), int(40 * k)), 0.6 * k, NEUTRAL, 1, 170)
         if self.cfg.show_debug and debug_lines:
             self._draw_debug(debug_lines)
@@ -328,11 +344,11 @@ class OverlayRenderer:
                 parts.append(("arrow", float(np.arctan2(d[1], d[0]))))
             return parts
         parts.append(("text", verb))
-        if a.kind in (T.PASS, T.THROUGH, T.LOB, T.CROSS, T.SWITCH) and a.target_label:
+        if a.kind in (T.PASS, T.THROUGH, T.LOB, T.CROSS, T.SWITCH) and a.shown_label:
             parts.append(("arrow", 0.0))
-            parts.append(("text", a.target_label))
-        elif a.kind == T.COVER and a.target_label:
-            parts.append(("text", a.target_label))
+            parts.append(("text", a.shown_label))
+        elif a.kind == T.COVER and a.shown_label:
+            parts.append(("text", a.shown_label))
         return parts
 
     def _draw_label(self, st, H, rec: T.Recommendation):
@@ -346,10 +362,16 @@ class OverlayRenderer:
         me = self._player_screen(H, st.controlled) if H is not None else None
         on_screen = me is not None and 0 <= me[0] < c.w and 0 <= me[1] < c.h
         if self.cfg.label_anchor == "top" or not on_screen:
-            x0, y0 = c.w // 2 - w // 2, int(18 * k)
+            # one fixed, predictable spot: centred just above the radar (where FC shows its own hints)
+            ry0 = self.cfg.avoid_rects[0][1] * c.h if self.cfg.avoid_rects else c.h * 0.8
+            x0, y0 = c.w // 2 - w // 2, int(ry0 - hgt - 24 * k)
         else:
+            # just above the player's head: player height in pixels from the local pitch scale
+            p = st.controlled.pos
+            pxm = float(np.linalg.norm(apply_h(H, p + np.array([1.0, 0.0])) - apply_h(H, p)))
+            head = float(np.clip(1.9 * pxm, 25 * k, 160 * k))
             x0 = int(me[0] - w / 2)
-            y0 = int(me[1] - 120 * k)
+            y0 = int(me[1] - head - hgt - 14 * k)
         x0 = int(np.clip(x0, 6, c.w - w - 18))
         y0 = int(np.clip(y0, 6, c.h - hgt - 40 * k))
         # keep clear of the game's HUD (radar, scoreboard): move above it

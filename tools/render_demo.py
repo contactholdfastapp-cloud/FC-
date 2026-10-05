@@ -61,9 +61,10 @@ def main():
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--debug", action="store_true", help="show the debug panel (latency, calibration, radar)")
     ap.add_argument("--caption", default="")
+    ap.add_argument("--us", default="", help="your radar team: triangle | circle (like pressing F7)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    cfg = load_config(a.config)
+    cfg = load_config(a.config, {"radar": {"us_shape": a.us}} if a.us else None)
     cfg.overlay.show_debug = a.debug
     an = VisionAnalyzer(cfg)
     cap = cv2.VideoCapture(a.video)

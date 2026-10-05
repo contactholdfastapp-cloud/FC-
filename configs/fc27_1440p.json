@@ -8,5 +8,5 @@
               "hud_masks": [[0.415, 0.795, 0.585, 0.985], [0.0, 0.0, 0.3, 0.12], [0.04, 0.88, 0.24, 0.98], [0.76, 0.88, 0.96, 0.98]]},
  "calib": {"init_mode": "dolly"},
  "state": {"attack_sign": 0},
- "overlay": {"label_anchor": "player", "show_confidence": false, "show_debug": false, "show_secondary": false}
+ "overlay": {"label_anchor": "player", "show_confidence": false, "show_debug": false, "show_secondary": false, "show_analysing": false}
 }
